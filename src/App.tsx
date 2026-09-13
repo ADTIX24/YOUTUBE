@@ -178,7 +178,21 @@ export default function App() {
       clearTimeout(stepTimer2);
       clearTimeout(stepTimer3);
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(responseText);
+      } catch (parseErr) {
+        // If server returned HTML (e.g. 404/504 gateway timeout or Vercel crash page)
+        const isHtml = responseText.includes("<html") || responseText.includes("<!DOCTYPE");
+        if (isHtml || responseText.startsWith("The page")) {
+          throw new Error(
+            `استجاب الخادم بصفحة خطأ غير متوقعة (HTTP ${response.status}). قد يكون وقت التنفيذ تجاوز الحد المسموح أو هناك خطأ في مسار الخادم.`
+          );
+        } else {
+          throw new Error(`تعذر قراءة استجابة الخادم: ${responseText.slice(0, 150)}`);
+        }
+      }
 
       if (data.success && data.result) {
         setResult(data.result);

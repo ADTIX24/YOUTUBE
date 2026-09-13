@@ -240,7 +240,13 @@ async function startAgent() {
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({ geminiKey, storyUrl, rawText, telegramToken, telegramChatId })
     });
-    const data = await res.json();
+    const resText = await res.text();
+    let data;
+    try {
+      data = JSON.parse(resText);
+    } catch(err) {
+      throw new Error(`استجاب السيرفر برسالة غير صالحة (${res.status}): ${resText.slice(0, 100)}`);
+    }
     btn.disabled = false;
 
     if (data.success) {
