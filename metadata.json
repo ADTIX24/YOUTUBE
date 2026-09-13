@@ -1,0 +1,6 @@
+{
+  "name": "وكيل صناعة القصص التلقائي",
+  "description": "لوحة تحكم ذكية لتحويل القصص والمقالات إلى سيناريوهات ومشاهد يوتيوب بدون حقوق ملكية باستخدام Gemini، جاهزة للنشر على Vercel.",
+  "requestFramePermissions": [],
+  "majorCapabilities": ["MAJOR_CAPABILITY_SERVER_SIDE_GEMINI_API"]
+}
