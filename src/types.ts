@@ -1,3 +1,27 @@
+export interface PlannedSceneCadence {
+  scene_index: number;
+  stage_name: string;
+  media_type: "video" | "image";
+  rationale: string;
+  tension_level?: "low" | "medium" | "high" | "peak";
+}
+
+export interface StoryProposal {
+  storyTitle: string;
+  storySummary: string;
+  genre: string;
+  narrativeDensity: "light" | "medium" | "dense" | "epic";
+  recommendedMinutes: number; // 5 to 40
+  recommendedScenesCount: number;
+  recommendedVideoScenesCount: number;
+  recommendedImageScenesCount: number;
+  retentionStrategy: string;
+  cadenceMap: PlannedSceneCadence[];
+  extractedTextPreview?: string;
+  sourceUrl?: string;
+  estimatedWords?: number;
+}
+
 export interface CharacterTransformation {
   original: string;
   adapted: string;
@@ -5,28 +29,42 @@ export interface CharacterTransformation {
 }
 
 export interface StoryScene {
-  scene_number: number;
-  title: string;
-  narration: string;
-  visual_description: string;
+  scene_id: number;
+  scene_number?: number;
+  narrative_stage?: string;
+  title?: string;
+  voiceover: string;
+  narration?: string;
   image_prompt: string;
+  media_type: "image" | "video";
+  motion_prompt?: string;
+  visual_description?: string;
   duration?: string;
+  // Generated Media
   generatedImageUrl?: string;
+  generatedVideoUrl?: string;
   generatedAudioUrl?: string;
+  isGeneratingImage?: boolean;
+  isGeneratingVideo?: boolean;
+  isGeneratingAudio?: boolean;
+  videoOperationName?: string;
 }
 
 export interface StoryResult {
   title: string;
-  logline: string;
+  description?: string;
+  logline?: string;
+  thumbnail_prompt?: string;
+  thumbnailPrompt?: string;
+  thumbnail_text?: string;
+  thumbnailDescription?: string;
+  generatedThumbnailUrl?: string;
   originalTitleDetected?: string;
   language?: "ar" | "en";
   estimatedMinutes?: number;
   style?: string;
   characterTransformations?: CharacterTransformation[];
   scenes: StoryScene[];
-  thumbnailPrompt?: string;
-  thumbnailDescription?: string;
-  generatedThumbnailUrl?: string;
   youtubeTags?: string[];
   closingCallToAction?: string;
   rawStory?: string;
@@ -46,6 +84,30 @@ export interface YouTubeChannelConfig {
   privacyStatus: "private" | "unlisted" | "public";
 }
 
+export interface FacebookConfig {
+  pageId: string;
+  accessToken: string;
+  pageName?: string;
+  autoPostVideo: boolean;
+}
+
+export interface InstagramConfig {
+  instagramAccountId: string;
+  accessToken: string;
+  accountUsername?: string;
+  autoPostReel: boolean;
+}
+
+export interface McpServerConfig {
+  id: string;
+  name: string;
+  serverUrl: string;
+  authToken?: string;
+  description?: string;
+  status?: "connected" | "disconnected" | "testing";
+  toolsCount?: number;
+}
+
 export interface AgentRunResponse {
   success: boolean;
   result?: StoryResult;
@@ -63,12 +125,3 @@ export interface AgentRunResponse {
   error?: string;
   sourceLength?: number;
 }
-
-export interface VercelFile {
-  name: string;
-  path: string;
-  lang: string;
-  content: string;
-  description: string;
-}
-

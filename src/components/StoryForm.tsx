@@ -1,20 +1,17 @@
 import { useState, useEffect, FormEvent } from "react";
+import { useLanguage } from "../context/LanguageContext";
 import {
   Link as LinkIcon,
-  FileText,
   Sparkles,
-  Sliders,
   Loader2,
-  Settings2,
-  ExternalLink,
+  Sliders,
   Flame,
+  RefreshCw,
   Newspaper,
-  Youtube,
-  Clock,
-  Globe,
-  Radio,
+  Video,
+  Search,
+  Zap,
 } from "lucide-react";
-import { YouTubeChannelConfig } from "../types";
 
 interface StoryFormProps {
   onSubmit: (params: {
@@ -28,26 +25,38 @@ interface StoryFormProps {
     storyLanguage: "ar" | "en";
     targetDurationMinutes: number;
     selectedChannelId: string;
+    videoRatioPercent: number;
+    autoGenerateImages: boolean;
+  }) => void;
+  onAnalyze?: (params: {
+    storyUrl: string;
+    rawText: string;
   }) => void;
   isLoading: boolean;
+  isAnalyzing?: boolean;
   hasServerKey: boolean;
   geminiKey: string;
   telegramToken: string;
   telegramChatId: string;
   onOpenKeysModal: () => void;
-  youtubeChannels: YouTubeChannelConfig[];
+  onOpenSettingsModal: () => void;
+  targetDurationMinutes: number;
+  targetScenes: number;
+  storyLanguage: "ar" | "en";
+  selectedStyle: string;
   selectedChannelId: string;
-  setSelectedChannelId: (id: string) => void;
+  videoRatioPercent: number;
+  autoGenerateImages: boolean;
 }
 
-const KABBOS_PRESETS = [
+const DEFAULT_PRESETS = [
   {
     title: "لغز طاهر بك.. ساحر مصر الذي تحدّى الموت",
     url: "https://kabbos.com/%d9%84%d8%ba%d8%b2-%d8%b7%d8%a7%d9%87%d8%b1-%d8%a8%d9%83-%d8%b3%d8%a7%d8%ad%d8%b1-%d9%85%d8%b5%d8%b1-%d8%a7%d9%84%d8%b0%d9%8a-%d8%aa%d8%ad%d8%af%d9%91%d9%89-%d8%a7%d9%84%d9%85%d9%88%d8%aa/",
   },
   {
     title: "3906: شهادة رجل عاد من المستقبل",
-    url: "https://kabbos.com/3906-%d8%b4%d9%87%d8%a7%d8%af%d8%a9-%d8%b1%d8%ac%d9%84-%d8%b9%d8%a7%d8%af-%d9%85%d9%86-%d8%a7%d9%84%d9%85%d8%b3%d8%aa%d9%82%d8%a8%d9%84/",
+    url: "https://kabbos.com/3906-%d8%b4%d9%87%d8%a7%d8%af%d8%a9-%d8%b1%d8%ac%d9%84-%d8%b9%d8%a7%d8%af-%d9%85%d8%b6%d8%aa%d9%82%d8%a8%d9%84/",
   },
   {
     title: "ساعة بلا عقارب .. لكن بضربات قلب!",
@@ -59,89 +68,107 @@ const KABBOS_PRESETS = [
   },
 ];
 
-const STYLES = [
-  { id: "سينمائي مشوق ومثير (YouTube Viral)", label: "سينمائي مشوق (YouTube Viral)" },
-  { id: "غموض وتحقيق استقصائي داكن (True Crime & Mystery)", label: "غموض وتحقيق استقصائي داكن" },
-  { id: "رعب نفسي وتشويق عميق (Psychological Horror)", label: "رعب نفسي وتشويق عميق" },
-  { id: "ملحمة أسطورية وتاريخية (Historical Documentary)", label: "ملحمة أسطورية ووثائقية" },
-  { id: "خيال علمي وغرائب ما وراء الطبيعة (Sci-Fi & Paranormal)", label: "خيال علمي وما وراء الطبيعة" },
-];
-
 export function StoryForm({
   onSubmit,
+  onAnalyze,
   isLoading,
+  isAnalyzing = false,
   hasServerKey,
   geminiKey,
   telegramToken,
   telegramChatId,
   onOpenKeysModal,
-  youtubeChannels,
+  onOpenSettingsModal,
+  targetDurationMinutes,
+  targetScenes,
+  storyLanguage,
+  selectedStyle,
   selectedChannelId,
-  setSelectedChannelId,
+  videoRatioPercent,
+  autoGenerateImages,
 }: StoryFormProps) {
+  const { language, t } = useLanguage();
   const [inputMode, setInputMode] = useState<"url" | "text">("url");
-  const [storyUrl, setStoryUrl] = useState(
-    "https://kabbos.com/%d9%84%d8%ba%d8%b2-%d8%b7%d8%a7%d9%87%d8%b1-%d8%a8%d9%83-%d8%b3%d8%a7%d8%ad%d8%b1-%d9%85%d8%b5%d8%b1-%d8%a7%d9%84%d8%b0%d9%8a-%d8%aa%d8%ad%d8%af%d9%91%d9%89-%d8%a7%d9%84%d9%85%d9%88%d8%aa/"
-  );
+  const [storyUrl, setStoryUrl] = useState(DEFAULT_PRESETS[0].url);
   const [rawText, setRawText] = useState("");
-  const [selectedStyle, setSelectedStyle] = useState(STYLES[0].id);
 
-  // New features: Duration (10-30 min), Language (AR/EN), Scenes (10 to 30)
-  const [targetDurationMinutes, setTargetDurationMinutes] = useState(15);
-  const [targetScenes, setTargetScenes] = useState(16);
-  const [storyLanguage, setStoryLanguage] = useState<"ar" | "en">("ar");
+  // Live stories from Kabbos with Refresh feature
+  const [allFetchedStories, setAllFetchedStories] = useState<{ title: string; url: string }[]>(DEFAULT_PRESETS);
+  const [displayedStories, setDisplayedStories] = useState<{ title: string; url: string }[]>(DEFAULT_PRESETS);
+  const [isRefreshing, setIsRefreshing] = useState(false);
 
-  // Keep language in sync if active channel changes
-  const activeChannel = youtubeChannels.find((ch) => ch.id === selectedChannelId);
-
-  useEffect(() => {
-    if (activeChannel?.language) {
-      setStoryLanguage(activeChannel.language);
+  // Fetch live stories on load
+  const fetchLiveStories = async () => {
+    setIsRefreshing(true);
+    try {
+      const res = await fetch("/api/kabbos-feed");
+      const data = await res.json();
+      if (data.success && data.stories && data.stories.length > 0) {
+        setAllFetchedStories(data.stories);
+        const shuffled = [...data.stories].sort(() => 0.5 - Math.random());
+        setDisplayedStories(shuffled.slice(0, 4));
+      }
+    } catch (e) {
+      console.warn("Feed fetch error, using defaults:", e);
+    } finally {
+      setIsRefreshing(false);
     }
-  }, [selectedChannelId, activeChannel]);
-
-  // Adjust recommended scenes dynamically when duration changes
-  const handleDurationChange = (minutes: number) => {
-    setTargetDurationMinutes(minutes);
-    // Every minute typically has ~1 to 1.5 scenes for engaging pacing
-    const calculatedScenes = Math.min(30, Math.max(10, Math.round(minutes * 1.1)));
-    setTargetScenes(calculatedScenes);
   };
 
-  // Live Kabbos stories
-  const [liveKabbosStories, setLiveKabbosStories] = useState<{ title: string; url: string }[]>([]);
-
   useEffect(() => {
-    let isMounted = true;
-    fetch("/api/kabbos-feed")
-      .then((res) => res.json())
-      .then((data) => {
-        if (isMounted && data?.stories && data.stories.length > 0) {
-          setLiveKabbosStories(data.stories);
-        }
-      })
-      .catch(() => {});
-    return () => {
-      isMounted = false;
-    };
+    fetchLiveStories();
   }, []);
 
-  const handleSelectStoryUrl = (url: string) => {
-    setStoryUrl(url);
-    setInputMode("url");
+  const handleShuffleStories = () => {
+    if (allFetchedStories.length > 4) {
+      const shuffled = [...allFetchedStories].sort(() => 0.5 - Math.random());
+      setDisplayedStories(shuffled.slice(0, 4));
+    } else {
+      fetchLiveStories();
+    }
   };
 
-  const handleSubmit = (e: FormEvent) => {
-    e.preventDefault();
-
+  const handleTriggerAnalysis = () => {
     if (!hasServerKey && !geminiKey.trim()) {
       onOpenKeysModal();
-      alert("يرجى إدخال مفتاح Gemini API أولاً في زر مفاتيح الربط لتشغيل الذكاء الاصطناعي.");
+      alert("يرجى إدخال مفتاح Gemini API أولاً في زر المفاتيح بالأعلى.");
       return;
     }
 
-    if (!storyUrl.trim() && !rawText.trim()) {
-      alert("يرجى إدخال رابط القصة أو اختيار واحدة من قصص موقع كابوس.");
+    if (inputMode === "url" && !storyUrl.trim()) {
+      alert("يرجى إدخال رابط القصة.");
+      return;
+    }
+
+    if (inputMode === "text" && !rawText.trim()) {
+      alert("يرجى إدخال أو لصق نص القصة.");
+      return;
+    }
+
+    if (onAnalyze) {
+      onAnalyze({
+        storyUrl: inputMode === "url" ? storyUrl.trim() : "",
+        rawText: inputMode === "text" ? rawText.trim() : "",
+      });
+    } else {
+      triggerDirectSubmit();
+    }
+  };
+
+  const triggerDirectSubmit = () => {
+    if (!hasServerKey && !geminiKey.trim()) {
+      onOpenKeysModal();
+      alert("يرجى إدخال مفتاح Gemini API أولاً في زر المفاتيح بالأعلى.");
+      return;
+    }
+
+    if (inputMode === "url" && !storyUrl.trim()) {
+      alert("يرجى إدخال رابط القصة.");
+      return;
+    }
+
+    if (inputMode === "text" && !rawText.trim()) {
+      alert("يرجى إدخال أو لصق نص القصة.");
       return;
     }
 
@@ -156,329 +183,210 @@ export function StoryForm({
       storyLanguage,
       targetDurationMinutes,
       selectedChannelId,
+      videoRatioPercent,
+      autoGenerateImages,
     });
   };
 
-  const isGeminiConfigured = Boolean(geminiKey.trim() || hasServerKey);
-  const isTgConfigured = Boolean(telegramToken.trim() && telegramChatId.trim());
+  const handleSubmit = (e: FormEvent) => {
+    e.preventDefault();
+    handleTriggerAnalysis();
+  };
 
   return (
-    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-5 sm:p-7 shadow-xl">
+    <div className="bg-slate-900 border border-slate-800 rounded-2xl p-6 sm:p-8 shadow-xl">
       <form onSubmit={handleSubmit} className="space-y-6">
-        {/* Top Control Bar: Active YouTube Channel & Status */}
-        <div className="p-4 rounded-xl bg-slate-950/80 border border-slate-800 flex flex-col md:flex-row items-start md:items-center justify-between gap-3">
-          {/* Active Channel Selector */}
-          <div className="flex items-center gap-3 w-full md:w-auto">
-            <div className="w-10 h-10 rounded-xl bg-red-600/20 text-red-400 border border-red-500/30 flex items-center justify-center font-bold shrink-0">
-              <Youtube className="w-5 h-5" />
-            </div>
-            <div className="flex-1 min-w-0">
-              <div className="text-xs text-slate-400 flex items-center gap-1.5 font-medium">
-                <span>القناة المستهدفة للنشر:</span>
-                <span className="text-[10px] px-1.5 py-0.2 rounded bg-slate-800 text-slate-300">
-                  {youtubeChannels.length} قنوات مسجلة
-                </span>
-              </div>
-              <div className="flex items-center gap-2 mt-0.5">
-                <select
-                  value={selectedChannelId}
-                  onChange={(e) => setSelectedChannelId(e.target.value)}
-                  className="bg-slate-900 border border-slate-700 rounded-lg px-2.5 py-1 text-xs text-white font-bold focus:outline-none focus:border-red-500 max-w-[220px]"
-                >
-                  {youtubeChannels.map((ch) => (
-                    <option key={ch.id} value={ch.id}>
-                      {ch.name} ({ch.language === "ar" ? "العربية" : "English"})
-                    </option>
-                  ))}
-                </select>
-                <span
-                  className={`text-[11px] px-2 py-0.5 rounded-full font-bold ${
-                    storyLanguage === "ar"
-                      ? "bg-emerald-500/20 text-emerald-300 border border-emerald-500/30"
-                      : "bg-blue-500/20 text-blue-300 border border-blue-500/30"
-                  }`}
-                >
-                  {storyLanguage === "ar" ? "🇸🇦 محتوى عربي" : "🇺🇸 English Content"}
-                </span>
-              </div>
-            </div>
-          </div>
-
-          {/* Quick link to manage keys & channels */}
-          <button
-            type="button"
-            onClick={onOpenKeysModal}
-            className="text-xs text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1.5 cursor-pointer bg-amber-500/10 hover:bg-amber-500/20 px-3 py-1.5 rounded-lg border border-amber-500/30 transition-all self-start md:self-auto"
-          >
-            <Settings2 className="w-3.5 h-3.5" />
-            <span>إدارة قنوات يوتيوب ومفاتيح الربط</span>
-          </button>
-        </div>
-
-        {/* Video Specs Configuration: Duration (10-30 min), Scenes (10-30), Language */}
-        <div className="p-4 rounded-xl bg-slate-950/60 border border-slate-800 space-y-4">
-          <div className="flex items-center justify-between border-b border-slate-800/80 pb-2.5">
-            <h3 className="text-xs sm:text-sm font-bold text-slate-100 flex items-center gap-2">
-              <Clock className="w-4 h-4 text-amber-400" />
-              مواصفات فيديو اليوتيوب (من 10 إلى 30 دقيقة)
-            </h3>
-            <span className="text-[11px] text-amber-400/90 font-medium">
-              الوكيل الذكي يوسع السرد تلقائياً لتغطية كامل الوقت
+        {/* Simple Mode Toggle */}
+        <div className="flex items-center justify-between border-b border-slate-800 pb-3">
+          <div className="flex items-center gap-2">
+            <LinkIcon className="w-4 h-4 text-amber-400" />
+            <span className="text-sm font-bold text-white">
+              {language === "ar" ? "مصدر القصة:" : "Story Source:"}
             </span>
           </div>
 
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-4">
-            {/* 1. Language Toggle */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
-                <Globe className="w-3.5 h-3.5 text-blue-400" />
-                لغة السيناريو والصوت:
-              </label>
-              <div className="grid grid-cols-2 gap-1.5 bg-slate-900 p-1 rounded-xl border border-slate-700/80">
-                <button
-                  type="button"
-                  onClick={() => setStoryLanguage("ar")}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                    storyLanguage === "ar"
-                      ? "bg-emerald-600 text-white shadow-sm"
-                      : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  <span>🇸🇦 العربية</span>
-                </button>
-                <button
-                  type="button"
-                  onClick={() => setStoryLanguage("en")}
-                  className={`py-1.5 px-2 rounded-lg text-xs font-bold transition-all cursor-pointer flex items-center justify-center gap-1 ${
-                    storyLanguage === "en"
-                      ? "bg-blue-600 text-white shadow-sm"
-                      : "text-slate-400 hover:text-slate-200"
-                  }`}
-                >
-                  <span>🇺🇸 English</span>
-                </button>
-              </div>
-            </div>
-
-            {/* 2. Target Video Duration (10 to 30 mins) */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex justify-between">
-                <span>مدة الفيديو المستهدفة:</span>
-                <span className="font-black text-amber-400 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/25">
-                  ⏱️ {targetDurationMinutes} دقيقة
-                </span>
-              </label>
-              <input
-                type="range"
-                min="10"
-                max="30"
-                step="1"
-                value={targetDurationMinutes}
-                onChange={(e) => handleDurationChange(Number(e.target.value))}
-                className="w-full accent-amber-500 bg-slate-800 cursor-pointer h-2 rounded-lg mt-1"
-              />
-              <div className="flex justify-between text-[10px] text-slate-500 mt-1 font-mono">
-                <span>10 دقائق</span>
-                <span>15 دقيقة (شائع)</span>
-                <span>20 دقيقة</span>
-                <span>30 دقيقة</span>
-              </div>
-            </div>
-
-            {/* 3. Number of Scenes (10 to 30 scenes) */}
-            <div>
-              <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex justify-between">
-                <span>عدد المشاهد المقترحة:</span>
-                <span className="font-black text-indigo-400 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/25">
-                  🎬 {targetScenes} مشهداً
-                </span>
-              </label>
-              <input
-                type="range"
-                min="10"
-                max="30"
-                step="1"
-                value={targetScenes}
-                onChange={(e) => setTargetScenes(Number(e.target.value))}
-                className="w-full accent-indigo-500 bg-slate-800 cursor-pointer h-2 rounded-lg mt-1"
-              />
-              <div className="flex justify-between text-[10px] text-slate-500 mt-1 font-mono">
-                <span>10 مشاهد</span>
-                <span>20 مشهد</span>
-                <span>30 مشهد (سرد عميق)</span>
-              </div>
-            </div>
-          </div>
-
-          {/* Style Selector */}
-          <div className="pt-2 border-t border-slate-800/80">
-            <label className="block text-xs font-semibold text-slate-300 mb-1.5 flex items-center gap-1.5">
-              <Sliders className="w-3.5 h-3.5 text-indigo-400" />
-              الأسلوب السينمائي والإخراجي للقصة:
-            </label>
-            <select
-              value={selectedStyle}
-              onChange={(e) => setSelectedStyle(e.target.value)}
-              className="w-full bg-slate-900 border border-slate-700/80 rounded-xl px-3 py-2 text-xs text-slate-100 focus:outline-none focus:border-amber-500 transition-colors"
+          <div className="flex bg-slate-950 p-1 rounded-xl border border-slate-800 text-xs">
+            <button
+              type="button"
+              onClick={() => setInputMode("url")}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer font-semibold ${
+                inputMode === "url"
+                  ? "bg-amber-600 text-white shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
             >
-              {STYLES.map((style) => (
-                <option key={style.id} value={style.id}>
-                  {style.label}
-                </option>
-              ))}
-            </select>
+              {t("tabUrl")}
+            </button>
+            <button
+              type="button"
+              onClick={() => setInputMode("text")}
+              className={`px-3 py-1.5 rounded-lg transition-all cursor-pointer font-semibold ${
+                inputMode === "text"
+                  ? "bg-amber-600 text-white shadow-sm"
+                  : "text-slate-400 hover:text-slate-200"
+              }`}
+            >
+              {t("tabText")}
+            </button>
           </div>
         </div>
 
-        {/* Kabbos Quick Story Selector */}
-        <div className="p-4 rounded-xl bg-gradient-to-b from-slate-950 to-slate-900/60 border border-amber-500/20">
-          <div className="flex items-center justify-between mb-2.5">
-            <div className="flex items-center gap-2">
-              <div className="w-7 h-7 rounded-lg bg-amber-500/15 text-amber-400 border border-amber-500/30 flex items-center justify-center font-bold text-xs">
-                <Flame className="w-4 h-4 text-amber-400" />
-              </div>
-              <div>
-                <span className="text-xs sm:text-sm font-bold text-slate-100 flex items-center gap-1.5">
-                  سحب القصص من موقع كابوس (kabbos.com):
-                </span>
-                <span className="text-[11px] text-slate-400 block">
-                  انقر على القصة ليسحب الوكيل كامل محتواها ويتجاوز الإعلانات ويحولها لسيناريو كامل
-                </span>
-              </div>
-            </div>
+        {/* Story Input Field */}
+        {inputMode === "url" ? (
+          <div className="space-y-3">
+            <label className="block text-xs font-semibold text-slate-300">
+              {language === "ar"
+                ? "أدخل رابط القصة (مثال: من موقع kabbos.com أو أي مقال آخر):"
+                : "Enter story URL (from news, blogs, or articles):"}
+            </label>
+            <input
+              type="url"
+              value={storyUrl}
+              onChange={(e) => setStoryUrl(e.target.value)}
+              placeholder={t("urlPlaceholder")}
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl px-4 py-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-colors"
+              dir="ltr"
+            />
 
-            <a
-              href="https://kabbos.com/"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="text-[11px] text-amber-400 hover:text-amber-300 flex items-center gap-1 font-semibold"
-            >
-              زيارة kabbos.com
-              <ExternalLink className="w-3 h-3" />
-            </a>
-          </div>
+            {/* Quick Live Stories from Kabbos with Refresh Button */}
+            <div className="pt-2">
+              <div className="flex items-center justify-between mb-2">
+                <span className="text-xs text-slate-300 font-medium flex items-center gap-1.5">
+                  <Newspaper className="w-3.5 h-3.5 text-amber-400" />
+                  <span>
+                    {language === "ar"
+                      ? "قصص حية من موقع كابوس (اختر بضغطة واحدة):"
+                      : "Live curated mystery stories (1-click load):"}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  onClick={handleShuffleStories}
+                  disabled={isRefreshing}
+                  className="text-xs text-amber-400 hover:text-amber-300 flex items-center gap-1 bg-amber-500/10 hover:bg-amber-500/20 px-2.5 py-1 rounded-lg border border-amber-500/30 transition-colors cursor-pointer"
+                  title={language === "ar" ? "سحب وتوليد قصص جديدة من موقع كابوس" : "Refresh stories"}
+                >
+                  <RefreshCw className={`w-3 h-3 ${isRefreshing ? "animate-spin" : ""}`} />
+                  <span>{language === "ar" ? "تحديث وقصص أخرى" : "Refresh"}</span>
+                </button>
+              </div>
 
-          <div className="flex flex-wrap gap-2 pt-1">
-            {(liveKabbosStories.length > 0 ? liveKabbosStories.slice(0, 6) : KABBOS_PRESETS).map(
-              (item, idx) => {
-                const isSelected = storyUrl === item.url && inputMode === "url";
-                return (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-2">
+                {displayedStories.map((item, idx) => (
                   <button
                     key={idx}
                     type="button"
-                    onClick={() => handleSelectStoryUrl(item.url)}
-                    className={`text-xs px-3 py-2 rounded-xl transition-all text-right flex items-center gap-2 cursor-pointer border ${
-                      isSelected
-                        ? "bg-amber-500/20 text-amber-200 border-amber-500/60 font-semibold shadow-sm"
-                        : "bg-slate-900/90 hover:bg-slate-800 text-slate-300 border-slate-700/70"
+                    onClick={() => {
+                      setStoryUrl(item.url);
+                      setInputMode("url");
+                    }}
+                    className={`text-xs p-2.5 rounded-xl ${language === "ar" ? "text-right" : "text-left"} flex items-center gap-2 border transition-all cursor-pointer ${
+                      storyUrl === item.url && inputMode === "url"
+                        ? "bg-amber-500/20 text-amber-200 border-amber-500/60 font-bold"
+                        : "bg-slate-950 hover:bg-slate-800/80 text-slate-300 border-slate-800"
                     }`}
                   >
-                    <Newspaper className="w-3.5 h-3.5 text-amber-400 shrink-0" />
+                    <Flame className="w-3.5 h-3.5 text-amber-400 shrink-0" />
                     <span className="line-clamp-1">{item.title}</span>
-                    {isSelected && (
-                      <span className="w-1.5 h-1.5 rounded-full bg-amber-400 shrink-0"></span>
-                    )}
                   </button>
-                );
-              }
+                ))}
+              </div>
+            </div>
+          </div>
+        ) : (
+          <div className="space-y-2">
+            <label className="block text-xs font-semibold text-slate-300">
+              {language === "ar" ? "الصق نص القصة أو المقال هنا:" : "Paste story text or plot summary here:"}
+            </label>
+            <textarea
+              value={rawText}
+              onChange={(e) => setRawText(e.target.value)}
+              rows={6}
+              placeholder={t("textPlaceholder")}
+              className="w-full bg-slate-950 border border-slate-700 rounded-xl p-3.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-colors leading-relaxed"
+            />
+            {rawText && (
+              <span className="text-[11px] text-slate-500 block">
+                {language === "ar" ? `عدد الأحرف: ${rawText.length} حرف` : `Characters: ${rawText.length}`}
+              </span>
             )}
           </div>
-        </div>
+        )}
 
-        {/* Story Input (URL / Text) */}
-        <div className="space-y-3 pt-1">
-          <div className="flex items-center justify-between">
-            <h3 className="text-xs sm:text-sm font-bold text-slate-200 flex items-center gap-2">
-              <LinkIcon className="w-4 h-4 text-blue-400" />
-              رابط القصة من kabbos.com أو أي موقع آخر
-            </h3>
-
-            <div className="flex bg-slate-950 p-0.5 rounded-lg border border-slate-800 text-xs">
-              <button
-                type="button"
-                onClick={() => setInputMode("url")}
-                className={`px-3 py-1 rounded-md transition-colors flex items-center gap-1 cursor-pointer ${
-                  inputMode === "url"
-                    ? "bg-blue-600 text-white font-medium"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                رابط (URL)
-              </button>
-              <button
-                type="button"
-                onClick={() => setInputMode("text")}
-                className={`px-3 py-1 rounded-md transition-colors flex items-center gap-1 cursor-pointer ${
-                  inputMode === "text"
-                    ? "bg-blue-600 text-white font-medium"
-                    : "text-slate-400 hover:text-slate-200"
-                }`}
-              >
-                لصق نص
-              </button>
-            </div>
+        {/* Current Active Settings Bar */}
+        <div className="flex flex-wrap items-center justify-between gap-3 bg-slate-950/70 p-3.5 rounded-xl border border-slate-800 text-xs">
+          <div className="flex flex-wrap items-center gap-2 text-slate-300">
+            <span className="font-semibold text-white">
+              {language === "ar" ? "المواصفات المختارة:" : "Selected Cadence:"}
+            </span>
+            <span className="px-2 py-0.5 rounded bg-slate-800 text-amber-300 font-mono">
+              ⏱️ {targetDurationMinutes} {t("minutes")}
+            </span>
+            <span className="px-2 py-0.5 rounded bg-slate-800 text-indigo-300 font-mono">
+              🎬 {targetScenes} {t("sceneWord")}
+            </span>
+            <span className="px-2 py-0.5 rounded bg-slate-800 text-red-300 font-mono flex items-center gap-1">
+              <Video className="w-3 h-3 text-red-400" />
+              {videoRatioPercent}% {language === "ar" ? "فيديو حركي" : "Motion Video"}
+            </span>
+            <span className="px-2 py-0.5 rounded bg-slate-800 text-emerald-300">
+              {storyLanguage === "ar" ? "🇸🇦 عربي" : "🇺🇸 English"}
+            </span>
           </div>
 
-          {inputMode === "url" ? (
-            <div>
-              <div className="relative">
-                <input
-                  type="url"
-                  value={storyUrl}
-                  onChange={(e) => setStoryUrl(e.target.value)}
-                  placeholder="https://kabbos.com/story-title"
-                  className="w-full bg-slate-950 border border-slate-700/80 rounded-xl px-4 py-2.5 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-colors"
-                  dir="ltr"
-                />
-              </div>
-              <p className="text-[11px] text-slate-400 mt-1.5">
-                يدعم موقع <strong className="text-amber-400">kabbos.com</strong> تلقائياً مع تنظيف
-                الإعلانات والتعليقات وسحب القصة كاملة بضغطة زر واحدة.
-              </p>
-            </div>
-          ) : (
-            <div>
-              <textarea
-                value={rawText}
-                onChange={(e) => setRawText(e.target.value)}
-                rows={4}
-                placeholder="الصق نص قصة كابوس أو أي مقال هنا مباشرة..."
-                className="w-full bg-slate-950 border border-slate-700/80 rounded-xl p-3 text-sm text-slate-100 placeholder-slate-500 focus:outline-none focus:border-amber-500 transition-colors leading-relaxed"
-              ></textarea>
-              {rawText && (
-                <span className="text-[11px] text-slate-400 mt-1 block">
-                  عدد الحروف: {rawText.length} حرف
-                </span>
-              )}
-            </div>
-          )}
+          <button
+            type="button"
+            onClick={onOpenSettingsModal}
+            className="text-amber-400 hover:text-amber-300 font-bold flex items-center gap-1.5 cursor-pointer bg-amber-500/10 hover:bg-amber-500/20 px-3 py-1.5 rounded-lg border border-amber-500/30 transition-colors"
+          >
+            <Sliders className="w-3.5 h-3.5" />
+            <span>{language === "ar" ? "تعديل الإعدادات (فيديوهات/صور/مدة)" : "Adjust Cadence & Styles"}</span>
+          </button>
         </div>
 
-        {/* Start Agent Workflow CTA */}
-        <div className="pt-2">
+        {/* Action Buttons: Proposal Workflow vs Direct Run */}
+        <div className="space-y-3 pt-2">
+          {/* Primary Action Button: Director Analysis & Cadence Proposal */}
           <button
-            type="submit"
-            disabled={isLoading}
+            type="button"
+            onClick={handleTriggerAnalysis}
+            disabled={isLoading || isAnalyzing}
             className="w-full py-4 px-6 rounded-xl font-bold text-white bg-gradient-to-r from-amber-600 via-orange-600 to-red-600 hover:from-amber-500 hover:to-red-500 transition-all shadow-lg shadow-orange-600/25 disabled:opacity-50 disabled:cursor-not-allowed flex items-center justify-center gap-2.5 text-base cursor-pointer"
           >
-            {isLoading ? (
+            {isAnalyzing ? (
               <>
                 <Loader2 className="w-5 h-5 animate-spin text-white" />
-                <span>
-                  جاري سحب القصة وإعادة كتابتها ({targetDurationMinutes} دقيقة - {targetScenes} مشهد
-                  - {storyLanguage === "ar" ? "عربي" : "English"})...
-                </span>
+                <span>{t("analyzingBtn")}</span>
+              </>
+            ) : isLoading ? (
+              <>
+                <Loader2 className="w-5 h-5 animate-spin text-white" />
+                <span>{t("generatingBtn")}</span>
               </>
             ) : (
               <>
-                <Sparkles className="w-5 h-5 text-amber-200" />
-                <span>
-                  ابدأ تشغيل الوكيل (سحب القصة • سيناريو {targetDurationMinutes} دقيقة • أوامر صور
-                  4K • إخراج يوتيوب)
-                </span>
+                <Search className="w-5 h-5 text-amber-200" />
+                <span>{t("analyzeBtn")}</span>
               </>
             )}
           </button>
+
+          {/* Quick Explanation & Direct Shortcut */}
+          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-1 text-xs text-slate-400">
+            <span className="text-[11px] text-slate-400">
+              {t("analyzeTip")}
+            </span>
+            <button
+              type="button"
+              onClick={triggerDirectSubmit}
+              disabled={isLoading || isAnalyzing}
+              className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 hover:underline cursor-pointer shrink-0"
+              title={language === "ar" ? "تخطي شاشة المقترح والبدء بالتوليد فوراً" : "Skip proposal and generate directly"}
+            >
+              <Zap className="w-3.5 h-3.5" />
+              <span>{t("instantDirectBtn")}</span>
+            </button>
+          </div>
         </div>
       </form>
     </div>

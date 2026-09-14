@@ -1,19 +1,22 @@
 import { useState, useEffect } from "react";
 import { Header } from "./components/Header";
 import { StoryForm } from "./components/StoryForm";
+import { StoryProposalCard } from "./components/StoryProposalCard";
 import { StoryResultView } from "./components/StoryResultView";
 import { ApiKeysModal } from "./components/ApiKeysModal";
+import { StorySettingsModal, STORY_STYLES } from "./components/StorySettingsModal";
+import { McpManagerModal } from "./components/McpManagerModal";
 import { SetupGuide } from "./components/SetupGuide";
-import { StoryResult, YouTubeChannelConfig } from "./types";
+import { useLanguage } from "./context/LanguageContext";
 import {
-  AlertCircle,
-  Sparkles,
-  Loader2,
-  KeyRound,
-  Youtube,
-  Clock,
-  Globe2,
-} from "lucide-react";
+  StoryResult,
+  StoryProposal,
+  YouTubeChannelConfig,
+  FacebookConfig,
+  InstagramConfig,
+  McpServerConfig,
+} from "./types";
+import { AlertCircle, Loader2 } from "lucide-react";
 
 const INITIAL_YOUTUBE_CHANNELS: YouTubeChannelConfig[] = [
   {
@@ -32,16 +35,66 @@ const INITIAL_YOUTUBE_CHANNELS: YouTubeChannelConfig[] = [
   },
 ];
 
+const INITIAL_MCP_SERVERS: McpServerConfig[] = [
+  {
+    id: "mcp_kabbos_feed",
+    name: "موقع كابوس (Kabbos Feed Engine)",
+    serverUrl: "https://kabbos.com/feed",
+    description: "تغذية حية ومقالات رعب وغموض وخوارق",
+    status: "connected",
+    toolsCount: 2,
+  },
+];
+
 export default function App() {
+  const { language, t } = useLanguage();
   const [activeTab, setActiveTab] = useState<"agent" | "guide">("agent");
   const [serverConnected, setServerConnected] = useState(true);
   const [hasServerKey, setHasServerKey] = useState(false);
 
-  // API Keys state lifted to App level so Header button & Form share state
+  // Modals state (Vercel ZIP modal completely removed)
   const [showKeysModal, setShowKeysModal] = useState(false);
+  const [showSettingsModal, setShowSettingsModal] = useState(false);
+  const [showMcpModal, setShowMcpModal] = useState(false);
+
+  // Keys state
   const [geminiKey, setGeminiKey] = useState("");
   const [telegramToken, setTelegramToken] = useState("");
   const [telegramChatId, setTelegramChatId] = useState("");
+
+  // Facebook & Instagram config
+  const [facebookConfig, setFacebookConfig] = useState<FacebookConfig>(() => {
+    try {
+      const saved = localStorage.getItem("fb_config");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return { pageId: "", accessToken: "", autoPostVideo: true };
+  });
+
+  const [instagramConfig, setInstagramConfig] = useState<InstagramConfig>(() => {
+    try {
+      const saved = localStorage.getItem("ig_config");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return { instagramAccountId: "", accessToken: "", autoPostReel: true };
+  });
+
+  // MCP Servers
+  const [mcpServers, setMcpServers] = useState<McpServerConfig[]>(() => {
+    try {
+      const saved = localStorage.getItem("mcp_servers_config");
+      if (saved) return JSON.parse(saved);
+    } catch {}
+    return INITIAL_MCP_SERVERS;
+  });
+
+  // Video Settings state
+  const [targetDurationMinutes, setTargetDurationMinutes] = useState(15);
+  const [targetScenes, setTargetScenes] = useState(15);
+  const [storyLanguage, setStoryLanguage] = useState<"ar" | "en">("ar");
+  const [selectedStyle, setSelectedStyle] = useState(STORY_STYLES[0].id);
+  const [videoRatioPercent, setVideoRatioPercent] = useState(30); // 30% Veo video scenes by default
+  const [autoGenerateImages, setAutoGenerateImages] = useState(true);
 
   // Multi-channel YouTube configuration state
   const [youtubeChannels, setYoutubeChannels] = useState<YouTubeChannelConfig[]>(() => {
@@ -56,12 +109,38 @@ export default function App() {
     return youtubeChannels[0]?.id || INITIAL_YOUTUBE_CHANNELS[0].id;
   });
 
-  // Save channels to localStorage
+  // Save configs to localStorage
   useEffect(() => {
     try {
       localStorage.setItem("yt_channels_config", JSON.stringify(youtubeChannels));
     } catch {}
   }, [youtubeChannels]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("fb_config", JSON.stringify(facebookConfig));
+    } catch {}
+  }, [facebookConfig]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("ig_config", JSON.stringify(instagramConfig));
+    } catch {}
+  }, [instagramConfig]);
+
+  useEffect(() => {
+    try {
+      localStorage.setItem("mcp_servers_config", JSON.stringify(mcpServers));
+    } catch {}
+  }, [mcpServers]);
+
+  // Sync language with selected channel
+  useEffect(() => {
+    const ch = youtubeChannels.find((c) => c.id === selectedChannelId);
+    if (ch?.language) {
+      setStoryLanguage(ch.language);
+    }
+  }, [selectedChannelId, youtubeChannels]);
 
   // Telegram test state
   const [testingTg, setTestingTg] = useState(false);
@@ -70,6 +149,10 @@ export default function App() {
     botUsername?: string;
     error?: string;
   } | null>(null);
+
+  const [proposal, setProposal] = useState<StoryProposal | null>(null);
+  const [isAnalyzing, setIsAnalyzing] = useState(false);
+  const [pendingInput, setPendingInput] = useState<{ storyUrl: string; rawText: string } | null>(null);
 
   const [isLoading, setIsLoading] = useState(false);
   const [loadingStep, setLoadingStep] = useState(1);
@@ -120,6 +203,80 @@ export default function App() {
     }
   };
 
+  const handleAnalyzeStory = async (input: { storyUrl: string; rawText: string }) => {
+    setIsAnalyzing(true);
+    setError(null);
+    setProposal(null);
+    setPendingInput(input);
+
+    try {
+      const response = await fetch("/api/analyze-story", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({
+          geminiKey,
+          storyUrl: input.storyUrl,
+          rawText: input.rawText,
+          targetDurationMinutes,
+          storyLanguage,
+          style: selectedStyle,
+        }),
+      });
+
+      const data = await response.json();
+      if (data.success && data.proposal) {
+        setProposal(data.proposal);
+        if (data.proposal.recommendedMinutes) {
+          setTargetDurationMinutes(data.proposal.recommendedMinutes);
+        }
+        if (data.proposal.recommendedScenesCount) {
+          setTargetScenes(data.proposal.recommendedScenesCount);
+        }
+        if (data.proposal.recommendedVideoScenesCount && data.proposal.recommendedScenesCount) {
+          const ratio = Math.round(
+            (data.proposal.recommendedVideoScenesCount / data.proposal.recommendedScenesCount) * 100
+          );
+          setVideoRatioPercent(ratio);
+        }
+      } else {
+        setError(data.error || "تعذر فحص القصة. يرجى التأكد من صحة الرابط أو المحتوى.");
+      }
+    } catch (err: unknown) {
+      const errMsg = err instanceof Error ? err.message : String(err);
+      setError(`فشل الاتصال بخدمة التحليل: ${errMsg}`);
+    } finally {
+      setIsAnalyzing(false);
+    }
+  };
+
+  const handleApproveProposal = (customized: {
+    durationMinutes: number;
+    totalScenes: number;
+    videoScenesCount: number;
+    videoRatioPercent: number;
+    autoGenerateImages: boolean;
+  }) => {
+    setTargetDurationMinutes(customized.durationMinutes);
+    setTargetScenes(customized.totalScenes);
+    setVideoRatioPercent(customized.videoRatioPercent);
+    setAutoGenerateImages(customized.autoGenerateImages);
+
+    handleStartAgent({
+      geminiKey,
+      storyUrl: pendingInput?.storyUrl || "",
+      rawText: pendingInput?.rawText || "",
+      telegramToken,
+      telegramChatId,
+      style: selectedStyle,
+      targetScenes: customized.totalScenes,
+      storyLanguage,
+      targetDurationMinutes: customized.durationMinutes,
+      selectedChannelId,
+      videoRatioPercent: customized.videoRatioPercent,
+      autoGenerateImages: customized.autoGenerateImages,
+    });
+  };
+
   const handleStartAgent = async (params: {
     geminiKey: string;
     storyUrl: string;
@@ -131,6 +288,8 @@ export default function App() {
     storyLanguage: "ar" | "en";
     targetDurationMinutes: number;
     selectedChannelId: string;
+    videoRatioPercent: number;
+    autoGenerateImages: boolean;
   }) => {
     setIsLoading(true);
     setError(null);
@@ -138,34 +297,29 @@ export default function App() {
     setTelegramStatus(null);
     setLoadingStep(1);
 
-    const langLabel = params.storyLanguage === "en" ? "الإنجليزية (English)" : "العربية";
+    const langLabel = params.storyLanguage === "en" ? "الإنجليزية" : "العربية";
     setLoadingText(
-      `⏳ الخطوة 1/4: جلب قصة كابوس kabbos.com واستخراج النصوص وتنظيفها من الإعلانات...`
+      `⏳ الخطوة 1/4: جلب القصة واستخراج النصوص وتنقيتها من الإعلانات...`
     );
 
-    // Simulated progress steps with realistic milestones
     const stepTimer1 = setTimeout(() => {
       setLoadingStep(2);
       setLoadingText(
-        `🧠 الخطوة 2/4: تجريد الملكية الفكرية وتغيير الشخصيات وتوسيع السرد ليناسب ${params.targetDurationMinutes} دقيقة باللغة ${langLabel}...`
+        `🧠 الخطوة 2/4: المخرج الوثائقي ينظم التسلسل الزمني والتطابق السمعي-البصري (20-35 كلمة صوتية)...`
       );
     }, 2500);
 
     const stepTimer2 = setTimeout(() => {
       setLoadingStep(3);
       setLoadingText(
-        `🎬 الخطوة 3/4: تفصيل ${params.targetScenes} مشهداً بالتعليق الصوتي وأوامر صور 4K وغلاف YouTube Thumbnail...`
+        `🎬 الخطوة 3/4: تفصيل ${params.targetScenes} مشهداً، وتحديد لقطات الفيديو Veo (${params.videoRatioPercent}%) والصور 4K...`
       );
     }, 6000);
 
     const stepTimer3 = setTimeout(() => {
       setLoadingStep(4);
-      setLoadingText(
-        `🚀 الخطوة 4/4: إعداد حزمة الفيديو وربطها مع قناة ${
-          youtubeChannels.find((ch) => ch.id === params.selectedChannelId)?.name || "اليوتيوب"
-        }...`
-      );
-    }, 9000);
+      setLoadingText(`🚀 الخطوة 4/4: توليد الصور التلقائية والغلاف عالي الـ CTR وتجهيز السيناريو...`);
+    }, 9500);
 
     try {
       const response = await fetch("/api/run", {
@@ -183,11 +337,10 @@ export default function App() {
       try {
         data = JSON.parse(responseText);
       } catch (parseErr) {
-        // If server returned HTML (e.g. 404/504 gateway timeout or Vercel crash page)
         const isHtml = responseText.includes("<html") || responseText.includes("<!DOCTYPE");
         if (isHtml || responseText.startsWith("The page")) {
           throw new Error(
-            `استجاب الخادم بصفحة خطأ غير متوقعة (HTTP ${response.status}). قد يكون وقت التنفيذ تجاوز الحد المسموح أو هناك خطأ في مسار الخادم.`
+            `استجاب الخادم بصفحة خطأ غير متوقعة (HTTP ${response.status}). يرجى التأكد من تشغيل الخادم.`
           );
         } else {
           throw new Error(`تعذر قراءة استجابة الخادم: ${responseText.slice(0, 150)}`);
@@ -207,7 +360,7 @@ export default function App() {
       clearTimeout(stepTimer2);
       clearTimeout(stepTimer3);
       const errMsg = err instanceof Error ? err.message : String(err);
-      setError(`تعذر الاتصال بالخادم: ${errMsg}. يرجى المحاولة لاحقاً.`);
+      setError(`تعذر إكمال المعالجة: ${errMsg}`);
     } finally {
       setIsLoading(false);
     }
@@ -219,18 +372,19 @@ export default function App() {
 
   return (
     <div className="min-h-screen bg-slate-950 text-slate-100 flex flex-col font-sans selection:bg-amber-600 selection:text-white">
-      {/* Top Header with Dedicated API Keys & Channels Button */}
+      {/* Clean Top Header */}
       <Header
         activeTab={activeTab}
         setActiveTab={setActiveTab}
         onOpenKeysModal={() => setShowKeysModal(true)}
+        onOpenSettingsModal={() => setShowSettingsModal(true)}
+        onOpenMcpModal={() => setShowMcpModal(true)}
         isGeminiConfigured={isGeminiConfigured}
         isTgConfigured={isTgConfigured}
-        serverConnected={serverConnected}
-        hasServerKey={hasServerKey}
+        mcpConnectedCount={mcpServers.length}
       />
 
-      {/* Global API Keys & YouTube Channels Modal */}
+      {/* Global API Keys & Accounts Modal */}
       <ApiKeysModal
         isOpen={showKeysModal}
         onClose={() => setShowKeysModal(false)}
@@ -248,79 +402,95 @@ export default function App() {
         setYoutubeChannels={setYoutubeChannels}
         selectedChannelId={selectedChannelId}
         setSelectedChannelId={setSelectedChannelId}
+        facebookConfig={facebookConfig}
+        setFacebookConfig={setFacebookConfig}
+        instagramConfig={instagramConfig}
+        setInstagramConfig={setInstagramConfig}
       />
 
-      {/* Main Container */}
-      <main className="flex-1 max-w-5xl w-full mx-auto px-4 sm:px-6 py-6 sm:py-8">
+      {/* Advanced Video Settings Modal */}
+      <StorySettingsModal
+        isOpen={showSettingsModal}
+        onClose={() => setShowSettingsModal(false)}
+        targetDurationMinutes={targetDurationMinutes}
+        setTargetDurationMinutes={setTargetDurationMinutes}
+        targetScenes={targetScenes}
+        setTargetScenes={setTargetScenes}
+        storyLanguage={storyLanguage}
+        setStoryLanguage={setStoryLanguage}
+        selectedStyle={selectedStyle}
+        setSelectedStyle={setSelectedStyle}
+        youtubeChannels={youtubeChannels}
+        selectedChannelId={selectedChannelId}
+        setSelectedChannelId={setSelectedChannelId}
+        videoRatioPercent={videoRatioPercent}
+        setVideoRatioPercent={setVideoRatioPercent}
+        autoGenerateImages={autoGenerateImages}
+        setAutoGenerateImages={setAutoGenerateImages}
+      />
+
+      {/* MCP Manager Modal */}
+      <McpManagerModal
+        isOpen={showMcpModal}
+        onClose={() => setShowMcpModal(false)}
+        mcpServers={mcpServers}
+        setMcpServers={setMcpServers}
+      />
+
+      {/* Main Workspace */}
+      <main className="flex-1 max-w-4xl w-full mx-auto px-4 py-8">
         {/* Error Alert */}
         {error && (
-          <div className="mb-6 p-4 rounded-2xl bg-red-950/50 border border-red-800 text-red-200 text-sm flex items-start gap-3 shadow-lg">
+          <div className="mb-6 p-4 rounded-2xl bg-red-950/60 border border-red-800 text-red-200 text-sm flex items-start gap-3 shadow-lg">
             <AlertCircle className="w-5 h-5 text-red-400 shrink-0 mt-0.5" />
             <div className="flex-1">
-              <span className="font-bold block mb-1">تنبيه أثناء المعالجة:</span>
+              <span className="font-bold block mb-1">تنبيه:</span>
               <p className="leading-relaxed">{error}</p>
             </div>
             <button
               onClick={() => setError(null)}
-              className="text-red-400 hover:text-red-200 text-xs px-2 py-1 bg-red-900/50 rounded-lg cursor-pointer"
+              className="text-red-400 hover:text-red-200 text-xs px-2.5 py-1 bg-red-900/50 rounded-lg cursor-pointer"
             >
               إغلاق
             </button>
           </div>
         )}
 
-        {/* Tab 1: Agent Dashboard */}
+        {/* Tab 1: Agent Workspace */}
         {activeTab === "agent" && (
           <div className="space-y-6">
             {!result ? (
               <>
-                {/* Intro summary banner */}
-                <div className="bg-gradient-to-r from-slate-900 via-slate-900 to-amber-950/30 border border-slate-800/90 rounded-2xl p-5 sm:p-6 shadow-xl relative overflow-hidden">
-                  <div className="flex flex-col sm:flex-row items-start sm:items-center justify-between gap-4">
-                    <div>
-                      <div className="flex items-center gap-2 mb-1.5">
-                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-amber-500/15 text-amber-300 border border-amber-500/30 flex items-center gap-1">
-                          <Sparkles className="w-3.5 h-3.5" />
-                          الوكيل التلقائي لصناعة فيديوهات يوتيوب (Agentic Workflow)
-                        </span>
-                        <span className="px-2.5 py-0.5 rounded-full text-[11px] font-bold bg-red-500/15 text-red-300 border border-red-500/30 flex items-center gap-1">
-                          <Youtube className="w-3.5 h-3.5" />
-                          دعم القنوات المتعددة (عربي / إنجليزي)
-                        </span>
-                      </div>
-                      <h2 className="text-base sm:text-lg font-black text-white">
-                        سحب قصص kabbos.com وتحويلها إلى سيناريوهات 10-30 دقيقة بدون حقوق نشر
-                      </h2>
-                      <p className="text-xs text-slate-300 mt-1 max-w-2xl leading-relaxed">
-                        الوكيل يقوم بسحب القصة، وتجريد الملكية الفكرية، وتوسيع السرد ليغطي المدة
-                        المحددة (10 إلى 30 دقيقة)، وتقسيمها إلى 10-30 مشهداً مع نصوص الصوت وأوامر
-                        الصور 4K وغلاف YouTube Thumbnail تمهيداً للنشر.
-                      </p>
-                    </div>
-
-                    <button
-                      onClick={() => setShowKeysModal(true)}
-                      className="px-3.5 py-2 bg-amber-500/15 hover:bg-amber-500/25 text-amber-300 border border-amber-500/30 rounded-xl text-xs font-bold flex items-center gap-2 transition-colors shrink-0 cursor-pointer"
-                    >
-                      <KeyRound className="w-4 h-4 text-amber-400" />
-                      <span>قنوات يوتيوب والمفاتيح</span>
-                    </button>
-                  </div>
-                </div>
-
-                {/* Form Input Card */}
-                <StoryForm
-                  onSubmit={handleStartAgent}
-                  isLoading={isLoading}
-                  hasServerKey={hasServerKey}
-                  geminiKey={geminiKey}
-                  telegramToken={telegramToken}
-                  telegramChatId={telegramChatId}
-                  onOpenKeysModal={() => setShowKeysModal(true)}
-                  youtubeChannels={youtubeChannels}
-                  selectedChannelId={selectedChannelId}
-                  setSelectedChannelId={setSelectedChannelId}
-                />
+                {proposal ? (
+                  /* Director's Proposed Cadence & Production Plan */
+                  <StoryProposalCard
+                    proposal={proposal}
+                    onApprove={handleApproveProposal}
+                    onCancel={() => setProposal(null)}
+                    isExecuting={isLoading}
+                  />
+                ) : (
+                  /* Clean Form with Proposal Trigger */
+                  <StoryForm
+                    onSubmit={handleStartAgent}
+                    onAnalyze={handleAnalyzeStory}
+                    isLoading={isLoading}
+                    isAnalyzing={isAnalyzing}
+                    hasServerKey={hasServerKey}
+                    geminiKey={geminiKey}
+                    telegramToken={telegramToken}
+                    telegramChatId={telegramChatId}
+                    onOpenKeysModal={() => setShowKeysModal(true)}
+                    onOpenSettingsModal={() => setShowSettingsModal(true)}
+                    targetDurationMinutes={targetDurationMinutes}
+                    targetScenes={targetScenes}
+                    storyLanguage={storyLanguage}
+                    selectedStyle={selectedStyle}
+                    selectedChannelId={selectedChannelId}
+                    videoRatioPercent={videoRatioPercent}
+                    autoGenerateImages={autoGenerateImages}
+                  />
+                )}
 
                 {/* Loading Status Indicator */}
                 {isLoading && (
@@ -329,7 +499,7 @@ export default function App() {
                       <Loader2 className="w-6 h-6 animate-spin" />
                     </div>
                     <div className="text-sm font-semibold text-slate-200">{loadingText}</div>
-                    <div className="w-full max-w-md mx-auto bg-slate-950 rounded-full h-2.5 overflow-hidden">
+                    <div className="w-full max-w-md mx-auto bg-slate-950 rounded-full h-2 overflow-hidden">
                       <div
                         className="bg-gradient-to-r from-amber-500 to-orange-500 h-full transition-all duration-700"
                         style={{ width: `${(loadingStep / 4) * 100}%` }}
@@ -342,31 +512,39 @@ export default function App() {
               /* Story Output Result */
               <StoryResultView
                 result={result}
+                geminiKey={geminiKey}
                 telegramStatus={telegramStatus}
                 activeChannel={activeChannel}
-                onReset={() => setResult(null)}
+                facebookConfig={facebookConfig}
+                instagramConfig={instagramConfig}
+                onReset={() => {
+                  setResult(null);
+                  setProposal(null);
+                }}
               />
             )}
           </div>
         )}
 
-        {/* Tab 2: Setup & Deployment Guide */}
+        {/* Tab 2: Instructions Guide */}
         {activeTab === "guide" && <SetupGuide />}
       </main>
 
       {/* Footer */}
-      <footer className="border-t border-slate-900 bg-slate-950 py-5 text-center text-xs text-slate-500">
-        <div className="max-w-5xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-2.5">
-          <p>وكيل صانع القصص وسيناريوهات يوتيوب • متوافق مع kabbos.com وتعدد اللغات والقنوات</p>
-          <div className="flex items-center gap-3 text-slate-400">
-            <span>مدعوم بـ Google Gemini</span>
-            <span>•</span>
-            <button
-              onClick={() => setShowKeysModal(true)}
-              className="text-amber-400 hover:text-amber-300 cursor-pointer"
+      <footer className="border-t border-slate-900 bg-slate-950 py-5 text-center text-xs text-slate-400">
+        <div className="max-w-4xl mx-auto px-4 flex flex-col sm:flex-row items-center justify-between gap-3">
+          <p className="text-slate-400 font-medium">
+            {language === "ar" ? "وكيل فيديو • إخراج ومونتاج سينمائي ذكي" : "Video Agent • Autonomous Cinematic Production"}
+          </p>
+          <div>
+            <a
+              href="https://www.adixmedia.website/"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="text-white hover:text-slate-200 transition-colors text-xs font-normal"
             >
-              مفاتيح وقنوات الربط
-            </button>
+              {language === "ar" ? "تصميم ADIX MEDIA" : "Designed by ADIX MEDIA"}
+            </a>
           </div>
         </div>
       </footer>
