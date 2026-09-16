@@ -1,6 +1,5 @@
 import express from "express";
 import path from "path";
-import { createServer as createViteServer } from "vite";
 import * as cheerio from "cheerio";
 import { GoogleGenAI, GenerateVideosOperation, Modality } from "@google/genai";
 
@@ -1379,14 +1378,15 @@ ${extractedText.slice(0, 8000)}
 
   // Vite middleware for development & server boot
   async function startServer() {
-    // If running inside Vercel serverless environment, never attach static handlers or listen on a port
-    if (process.env.VERCEL) {
-      console.log("Vercel Serverless environment detected: Vite & static middleware bypassed.");
+    // If running inside Vercel or AWS Lambda serverless environment, never attach static handlers or listen on a port
+    if (process.env.VERCEL || process.env.AWS_LAMBDA_FUNCTION_NAME) {
+      console.log("Serverless environment detected: Vite & static middleware bypassed.");
       return;
     }
 
     if (process.env.NODE_ENV !== "production") {
-      const vite = await createViteServer({
+      const { createServer } = await import("vite");
+      const vite = await createServer({
         server: { middlewareMode: true },
         appType: "spa",
       });
@@ -1406,5 +1406,7 @@ ${extractedText.slice(0, 8000)}
 
   export default app;
 
-  startServer();
+  if (!process.env.VERCEL && !process.env.AWS_LAMBDA_FUNCTION_NAME) {
+    startServer();
+  }
 

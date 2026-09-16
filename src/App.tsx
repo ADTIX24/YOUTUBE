@@ -17,6 +17,11 @@ import {
   McpServerConfig,
 } from "./types";
 import { AlertCircle, Loader2 } from "lucide-react";
+import {
+  buildClientSideProposal,
+  fetchStoryClientFallback,
+  runClientGeminiScriptGeneration,
+} from "./lib/clientFallback";
 
 const INITIAL_YOUTUBE_CHANNELS: YouTubeChannelConfig[] = [
   {
@@ -247,7 +252,7 @@ export default function App() {
 
     try {
       const data = await runAnalysisRequest();
-      if (data.success && data.proposal) {
+      if (data && data.success && data.proposal) {
         setProposal(data.proposal);
         if (data.proposal.recommendedMinutes) {
           setTargetDurationMinutes(data.proposal.recommendedMinutes);
@@ -261,10 +266,61 @@ export default function App() {
           );
           setVideoRatioPercent(ratio);
         }
+        return;
       } else {
-        setError(data.error || "تعذر فحص القصة. يرجى التأكد من صحة الرابط أو المحتوى.");
+        throw new Error(data?.error || "Server could not generate proposal");
       }
     } catch (err: unknown) {
+      console.warn("Server analysis encountered issue, activating client-side proposal engine:", err);
+
+      // 1. If user provided raw text, generate proposal directly
+      if (input.rawText && input.rawText.trim().length > 20) {
+        const clientProposal = buildClientSideProposal(
+          input.rawText.trim(),
+          "",
+          targetDurationMinutes,
+          selectedStyle,
+          storyLanguage
+        );
+        setProposal(clientProposal as any);
+        if (clientProposal.recommendedMinutes) setTargetDurationMinutes(clientProposal.recommendedMinutes);
+        if (clientProposal.recommendedScenesCount) setTargetScenes(clientProposal.recommendedScenesCount);
+        if (clientProposal.recommendedVideoScenesCount && clientProposal.recommendedScenesCount) {
+          setVideoRatioPercent(
+            Math.round((clientProposal.recommendedVideoScenesCount / clientProposal.recommendedScenesCount) * 100)
+          );
+        }
+        return;
+      }
+
+      // 2. If user provided URL, attempt client-side fallback retrieval
+      if (input.storyUrl && input.storyUrl.trim()) {
+        try {
+          const fallbackStory = await fetchStoryClientFallback(input.storyUrl.trim());
+          if (fallbackStory && fallbackStory.text) {
+            const clientProposal = buildClientSideProposal(
+              fallbackStory.text,
+              input.storyUrl,
+              targetDurationMinutes,
+              selectedStyle,
+              storyLanguage
+            );
+            if (fallbackStory.title) clientProposal.storyTitle = fallbackStory.title;
+            setProposal(clientProposal as any);
+            if (clientProposal.recommendedMinutes) setTargetDurationMinutes(clientProposal.recommendedMinutes);
+            if (clientProposal.recommendedScenesCount) setTargetScenes(clientProposal.recommendedScenesCount);
+            if (clientProposal.recommendedVideoScenesCount && clientProposal.recommendedScenesCount) {
+              setVideoRatioPercent(
+                Math.round((clientProposal.recommendedVideoScenesCount / clientProposal.recommendedScenesCount) * 100)
+              );
+            }
+            return;
+          }
+        } catch {
+          // ignore
+        }
+      }
+
       const errMsg = err instanceof Error ? err.message : String(err);
       setError(`تنبيه التحليل: ${errMsg}`);
     } finally {
@@ -361,9 +417,9 @@ export default function App() {
         data = JSON.parse(responseText);
       } catch (parseErr) {
         const isHtml = responseText.includes("<html") || responseText.includes("<!DOCTYPE");
-        if (isHtml || responseText.startsWith("The page")) {
+        if (isHtml || responseText.startsWith("The page") || response.status >= 500) {
           throw new Error(
-            `استجاب الخادم بصفحة خطأ غير متوقعة (HTTP ${response.status}). يرجى التأكد من تشغيل الخادم.`
+            `استجاب الخادم بصفحة خطأ غير متوقعة (HTTP ${response.status}).`
           );
         } else {
           throw new Error(`تعذر قراءة استجابة الخادم: ${responseText.slice(0, 150)}`);
@@ -375,13 +431,38 @@ export default function App() {
         if (data.telegramStatus) {
           setTelegramStatus(data.telegramStatus);
         }
+        return;
       } else {
-        setError(data.error || "حدث خطأ غير معروف أثناء معالجة القصة.");
+        throw new Error(data.error || "Server script generation failed");
       }
     } catch (err: unknown) {
       clearTimeout(stepTimer1);
       clearTimeout(stepTimer2);
       clearTimeout(stepTimer3);
+
+      console.warn("Server generation failed or timed out. Checking client fallback...", err);
+
+      // If user has geminiKey entered in UI, run client-side Gemini generation!
+      const storyTextCandidate = params.rawText || pendingInput?.rawText || "";
+      if (params.geminiKey && storyTextCandidate.length > 20) {
+        try {
+          setLoadingText("⚡ جاري استكمال التوليد مباشرة عبر مفتاح Gemini...");
+          const clientResult = await runClientGeminiScriptGeneration({
+            geminiKey: params.geminiKey,
+            storyText: storyTextCandidate,
+            targetScenes: params.targetScenes,
+            targetDurationMinutes: params.targetDurationMinutes,
+            videoRatioPercent: params.videoRatioPercent,
+            storyLanguage: params.storyLanguage,
+            style: params.style,
+          });
+          setResult(clientResult);
+          return;
+        } catch (clientErr) {
+          console.error("Client generation also failed:", clientErr);
+        }
+      }
+
       const errMsg = err instanceof Error ? err.message : String(err);
       setError(`تعذر إكمال المعالجة: ${errMsg}`);
     } finally {
