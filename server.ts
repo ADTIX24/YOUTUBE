@@ -23,6 +23,60 @@ function getGeminiClient(customKey?: string) {
   });
 }
 
+// Resilient AI generation helper with multi-model fallback and automatic retry for 503 High Demand spikes
+async function generateJsonWithFallback(
+  client: GoogleGenAI,
+  prompt: string,
+  systemInstruction?: string,
+  preferredModel?: string
+): Promise<string> {
+  // Use fast, high-availability models: gemini-3.1-flash-lite has immediate capacity, followed by gemini-3.8-flash
+  const candidateModels = preferredModel
+    ? [preferredModel, "gemini-3.1-flash-lite", "gemini-3.8-flash"].filter((v, i, a) => a.indexOf(v) === i)
+    : ["gemini-3.1-flash-lite", "gemini-3.8-flash"];
+
+  let lastError: any = null;
+
+  for (const model of candidateModels) {
+    for (let attempt = 1; attempt <= 2; attempt++) {
+      try {
+        console.log(`Generating screenplay JSON with ${model} (attempt ${attempt})...`);
+        const res = await client.models.generateContent({
+          model,
+          contents: prompt,
+          config: {
+            responseMimeType: "application/json",
+            ...(systemInstruction ? { systemInstruction } : {}),
+          },
+        });
+        if (res.text && res.text.trim()) {
+          return res.text;
+        }
+      } catch (err: any) {
+        lastError = err;
+        const msg = String(err?.message || "");
+        const is503 =
+          err?.status === 503 ||
+          err?.code === 503 ||
+          msg.includes("503") ||
+          msg.includes("high demand") ||
+          msg.includes("UNAVAILABLE");
+
+        if (is503 && attempt < 2) {
+          console.log(`Model ${model} experienced temporary 503 demand spike, retrying after brief pause...`);
+          await new Promise((r) => setTimeout(r, 900));
+          continue;
+        }
+
+        console.log(`Switching from ${model} to next candidate model due to availability...`);
+        break;
+      }
+    }
+  }
+
+  throw lastError || new Error("جميع نماذج الذكاء الاصطناعي تشهد ضغطاً مؤقتاً (503). يرجى المحاولة مرة أخرى.");
+}
+
 // -------------------------------------------------------------
 // STORY CONTENT EXTRACTOR (Web Scraper & Text Cleaner)
 // -------------------------------------------------------------
@@ -36,16 +90,28 @@ async function extractStoryContent(storyUrl?: string, rawText?: string): Promise
   let fetchedTitle = "";
 
   if (storyUrl && storyUrl.trim()) {
+    const targetUrl = storyUrl.trim();
+
+    // Strategy 1: Direct HTTP fetch with full browser spoof headers
     try {
-      const targetUrl = storyUrl.trim();
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 6000);
+
       const response = await fetch(targetUrl, {
+        signal: controller.signal,
         headers: {
           "User-Agent":
-            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/122.0.0.0 Safari/537.36",
+            "Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/124.0.0.0 Safari/537.36",
           Accept: "text/html,application/xhtml+xml,application/xml;q=0.9,*/*;q=0.8",
-          "Accept-Language": "ar,en;q=0.9",
+          "Accept-Language": "ar,en-US;q=0.9,en;q=0.8",
+          "Sec-Ch-Ua": '"Chromium";v="124", "Google Chrome";v="124"',
+          "Sec-Ch-Ua-Mobile": "?0",
+          "Sec-Ch-Ua-Platform": '"Windows"',
+          "Sec-Fetch-Dest": "document",
+          "Sec-Fetch-Mode": "navigate",
         },
       });
+      clearTimeout(timeoutId);
 
       if (response.ok) {
         const html = await response.text();
@@ -90,17 +156,75 @@ async function extractStoryContent(storyUrl?: string, rawText?: string): Promise
           extractedText = combinedParas.join("\n\n");
         }
       }
-    } catch (err: unknown) {
-      console.warn("Could not fetch story URL:", err);
-      if (!extractedText) {
-        const message = err instanceof Error ? err.message : String(err);
-        return {
-          title: "",
-          text: "",
-          source: "url",
-          error: `تعذر جلب المحتوى من الرابط (${message}). يرجى لصق نص القصة مباشرة.`,
-        };
+    } catch (err) {
+      console.warn("Direct story fetch failed or timed out, trying AI Reader fallback...", err);
+    }
+
+    // Strategy 2: Resilient Jina AI Reader Fallback (bypasses bot filters, Cloudflare & complex HTML)
+    if (!extractedText || extractedText.length < 100) {
+      try {
+        const readerUrl = `https://r.jina.ai/${targetUrl}`;
+        const controller2 = new AbortController();
+        const timeoutId2 = setTimeout(() => controller2.abort(), 6000);
+
+        const readerRes = await fetch(readerUrl, {
+          signal: controller2.signal,
+          headers: {
+            Accept: "text/plain",
+            "X-No-Cache": "true",
+          },
+        });
+        clearTimeout(timeoutId2);
+
+        if (readerRes.ok) {
+          const readerText = await readerRes.text();
+          if (readerText && !readerText.includes("404: Not Found") && !readerText.includes("Page not found")) {
+            // Extract title if present
+            const titleMatch = readerText.match(/^Title:\s*(.+)$/m);
+            if (titleMatch && titleMatch[1]) {
+              fetchedTitle = titleMatch[1].replace(/ - كابوس.*/, "").trim();
+            }
+
+            // Extract content after "Markdown Content:"
+            const contentIdx = readerText.indexOf("Markdown Content:");
+            const bodyPart = contentIdx !== -1 ? readerText.slice(contentIdx + 17) : readerText;
+
+            // Clean markdown images and links to get pure story text
+            const cleaned = bodyPart
+              .replace(/!\[.*?\]\(.*?\)/g, "") // remove images
+              .replace(/\[(.*?)\]\(.*?\)/g, "$1") // simplify links
+              .replace(/#{1,6}\s+/g, "") // remove headers
+              .split("\n")
+              .map((l) => l.trim())
+              .filter(
+                (l) =>
+                  l.length > 25 &&
+                  !l.includes("حقوق النشر") &&
+                  !l.includes("جميع الحقوق محفوظة") &&
+                  !l.includes("شارك المقال") &&
+                  !l.includes("تابعنا على") &&
+                  !l.includes("إقرأ أيضا")
+              )
+              .join("\n\n");
+
+            if (cleaned.length > 150) {
+              extractedText = cleaned;
+              console.log("Successfully extracted story via AI Reader fallback. Length:", extractedText.length);
+            }
+          }
+        }
+      } catch (fallbackErr) {
+        console.warn("AI Reader fallback also failed:", fallbackErr);
       }
+    }
+
+    if (!extractedText && !rawText) {
+      return {
+        title: "",
+        text: "",
+        source: "url",
+        error: "تعذر سحب محتوى هذا الرابط (قد يكون الرابط غير متاح أو الصفحة محذوفة 404). يرجى التأكد من الرابط أو تجربة قصة أخرى.",
+      };
     }
   }
 
@@ -348,16 +472,14 @@ ${extracted.text.slice(0, 3500)}
   "retentionStrategy": "${isEnglish ? "Why this video-to-image cadence prevents boredom" : "شرح مقنع بأسلوب مخرج سينمائي لكيفية حماية المشاهد من الملل عبر توزيع الفيديوهات والصور"}"
 }
 `;
-          const analysisRes = await client.models.generateContent({
-            model: "gemini-3.8-flash",
-            contents: prompt,
-            config: {
-              responseMimeType: "application/json",
-            },
-          });
+          const analysisJsonText = await generateJsonWithFallback(
+            client,
+            prompt,
+            "أنت مخرج وثائقي سينمائي محترف ومسؤول مونتاج أول. أجب بصيغة JSON نظيفة فقط."
+          );
 
-          if (analysisRes.text) {
-            const aiData = JSON.parse(analysisRes.text);
+          if (analysisJsonText) {
+            const aiData = JSON.parse(analysisJsonText);
             if (aiData.storyTitle) storyTitle = aiData.storyTitle;
             if (aiData.storySummary) storySummary = aiData.storySummary;
             if (aiData.genre) genre = aiData.genre;
@@ -516,37 +638,14 @@ app.post("/api/run", async (req, res) => {
 ${extractedText.slice(0, 8000)}
 `;
 
-      const candidateModels = [
-        "gemini-3.8-flash",
-        "gemini-3.1-flash-lite",
-        "gemini-flash-latest",
-        "gemini-3.1-pro-preview",
-      ];
-      let responseText = "";
-      let lastErr: unknown = null;
-
-      for (const modelName of candidateModels) {
-        try {
-          console.log(`Calling Gemini for story screenplay with model: ${modelName}...`);
-          const genRes = await client.models.generateContent({
-            model: modelName,
-            contents: prompt,
-            config: {
-              responseMimeType: "application/json",
-              systemInstruction:
-                "أنت مخرج وثائقي سينمائي محترف ومسؤول مونتاج أول. أجب بصيغة JSON نظيفة فقط.",
-            },
-          });
-          responseText = genRes.text || "";
-          if (responseText) break;
-        } catch (err: unknown) {
-          lastErr = err;
-          console.warn(`Model ${modelName} returned error:`, err);
-        }
-      }
+      const responseText = await generateJsonWithFallback(
+        client,
+        prompt,
+        "أنت مخرج وثائقي سينمائي محترف ومسؤول مونتاج أول. أجب بصيغة JSON نظيفة فقط."
+      );
 
       if (!responseText) {
-        throw lastErr || new Error("تعذر الحصول على استجابة من نموذج Gemini.");
+        throw new Error("تعذر الحصول على استجابة من الذكاء الاصطناعي.");
       }
 
       let parsedResult: any = null;
@@ -680,11 +779,15 @@ ${extractedText.slice(0, 8000)}
         telegramStatus,
       });
     } catch (err: unknown) {
-      console.error("Agent run error:", err);
-      const message = err instanceof Error ? err.message : String(err);
+      console.warn("Agent run error handled:", err instanceof Error ? err.message : String(err));
+      const rawMessage = err instanceof Error ? err.message : String(err);
+      let userFriendlyError = rawMessage;
+      if (rawMessage.includes("503") || rawMessage.includes("high demand") || rawMessage.includes("UNAVAILABLE")) {
+        userFriendlyError = "نموذج الذكاء الاصطناعي يشهد ضغطاً مؤقتاً في الطلبات (503 High Demand). يُرجى النقر على إعادة المحاولة بعد ثوانٍ قليلة.";
+      }
       return res.status(500).json({
         success: false,
-        error: `حدث خطأ أثناء معالجة القصة وتوليد المشاهد: ${message}`,
+        error: `حدث خطأ أثناء معالجة القصة وتوليد المشاهد: ${userFriendlyError}`,
       });
     }
   });

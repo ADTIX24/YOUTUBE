@@ -10,7 +10,6 @@ import {
   Newspaper,
   Video,
   Search,
-  Zap,
 } from "lucide-react";
 
 interface StoryFormProps {
@@ -55,8 +54,8 @@ const DEFAULT_PRESETS = [
     url: "https://kabbos.com/%d9%84%d8%ba%d8%b2-%d8%b7%d8%a7%d9%87%d8%b1-%d8%a8%d9%83-%d8%b3%d8%a7%d8%ad%d8%b1-%d9%85%d8%b5%d8%b1-%d8%a7%d9%84%d8%b0%d9%8a-%d8%aa%d8%ad%d8%af%d9%91%d9%89-%d8%a7%d9%84%d9%85%d9%88%d8%aa/",
   },
   {
-    title: "3906: شهادة رجل عاد من المستقبل",
-    url: "https://kabbos.com/3906-%d8%b4%d9%87%d8%a7%d8%af%d8%a9-%d8%b1%d8%ac%d9%84-%d8%b9%d8%a7%d8%af-%d9%85%d8%b6%d8%aa%d9%82%d8%a8%d9%84/",
+    title: "الضلع الزائد – ثقب في جدار النوايا",
+    url: "https://kabbos.com/%d8%a7%d9%84%d8%b6%d9%84%d8%b9-%d8%a7%d9%84%d8%b2%d8%a7%d8%a6%d8%af-%d8%ab%d9%82%d8%a8-%d9%81%d9%8a-%d8%ac%d8%af%d8%a7%d8%b1-%d8%a7%d9%84%d9%86%d9%88%d8%a7%d9%8a%d8%a7-%d9%82%d8%b5%d8%b5/",
   },
   {
     title: "ساعة بلا عقارب .. لكن بضربات قلب!",
@@ -371,21 +370,11 @@ export function StoryForm({
             )}
           </button>
 
-          {/* Quick Explanation & Direct Shortcut */}
-          <div className="flex flex-col sm:flex-row items-center justify-between gap-2 px-1 text-xs text-slate-400">
-            <span className="text-[11px] text-slate-400">
+          {/* Quick Explanation */}
+          <div className="text-center px-1">
+            <span className="text-xs text-slate-400">
               {t("analyzeTip")}
             </span>
-            <button
-              type="button"
-              onClick={triggerDirectSubmit}
-              disabled={isLoading || isAnalyzing}
-              className="text-amber-400 hover:text-amber-300 font-semibold flex items-center gap-1 hover:underline cursor-pointer shrink-0"
-              title={language === "ar" ? "تخطي شاشة المقترح والبدء بالتوليد فوراً" : "Skip proposal and generate directly"}
-            >
-              <Zap className="w-3.5 h-3.5" />
-              <span>{t("instantDirectBtn")}</span>
-            </button>
           </div>
         </div>
       </form>

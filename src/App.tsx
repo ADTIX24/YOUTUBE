@@ -223,7 +223,19 @@ export default function App() {
         }),
       });
 
-      const data = await response.json();
+      const responseText = await response.text();
+      let data: any = null;
+      try {
+        data = JSON.parse(responseText);
+      } catch {
+        if (response.status === 504 || responseText.includes("timed out") || responseText.includes("504")) {
+          throw new Error("انتهت مهلة استجابة الخادم (Gateway Timeout 504). يُفضل لصق نص القصة مباشرة أو زيادة المهلة في إعدادات السيرفر.");
+        }
+        if (responseText.includes("A server error has occurred") || response.status >= 500) {
+          throw new Error(`تعذر على الخادم معالجة الطلب (خطأ 500 على السيرفر). تأكد من إعداد مفتاح GEMINI_API_KEY في متغيرات البيئة (Environment Variables) ومن صلاحية رابط القصة.`);
+        }
+        throw new Error(`استجاب الخادم ببيانات غير متوقعة (HTTP ${response.status}): ${responseText.slice(0, 120)}`);
+      }
       if (data.success && data.proposal) {
         setProposal(data.proposal);
         if (data.proposal.recommendedMinutes) {
