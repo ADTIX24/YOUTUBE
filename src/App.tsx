@@ -209,7 +209,7 @@ export default function App() {
     setProposal(null);
     setPendingInput(input);
 
-    try {
+    const runAnalysisRequest = async (isRetry = false): Promise<any> => {
       const response = await fetch("/api/analyze-story", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
@@ -228,14 +228,25 @@ export default function App() {
       try {
         data = JSON.parse(responseText);
       } catch {
+        // If transient 500 or cold start occurred and we haven't retried yet, retry after 1.2s
+        if (!isRetry && (response.status >= 500 || responseText.includes("A server error has occurred"))) {
+          await new Promise((r) => setTimeout(r, 1200));
+          return runAnalysisRequest(true);
+        }
+
         if (response.status === 504 || responseText.includes("timed out") || responseText.includes("504")) {
-          throw new Error("انتهت مهلة استجابة الخادم (Gateway Timeout 504). يُفضل لصق نص القصة مباشرة أو زيادة المهلة في إعدادات السيرفر.");
+          throw new Error("انتهت مهلة استجابة الخادم أثناء محاولة فتح الرابط. يُفضل نسخ نص القصة ولصقه مباشرة في خانة (لصق نص القصة).");
         }
         if (responseText.includes("A server error has occurred") || response.status >= 500) {
-          throw new Error(`تعذر على الخادم معالجة الطلب (خطأ 500 على السيرفر). تأكد من إعداد مفتاح GEMINI_API_KEY في متغيرات البيئة (Environment Variables) ومن صلاحية رابط القصة.`);
+          throw new Error("تعذر على الخادم معالجة الرابط حالياً. يُرجى التأكد من الرابط أو التبديل إلى تبويب (لصق نص القصة) ولصق النص مباشرة.");
         }
         throw new Error(`استجاب الخادم ببيانات غير متوقعة (HTTP ${response.status}): ${responseText.slice(0, 120)}`);
       }
+      return data;
+    };
+
+    try {
+      const data = await runAnalysisRequest();
       if (data.success && data.proposal) {
         setProposal(data.proposal);
         if (data.proposal.recommendedMinutes) {
@@ -255,7 +266,7 @@ export default function App() {
       }
     } catch (err: unknown) {
       const errMsg = err instanceof Error ? err.message : String(err);
-      setError(`فشل الاتصال بخدمة التحليل: ${errMsg}`);
+      setError(`تنبيه التحليل: ${errMsg}`);
     } finally {
       setIsAnalyzing(false);
     }

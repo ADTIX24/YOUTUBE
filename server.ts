@@ -90,12 +90,20 @@ async function extractStoryContent(storyUrl?: string, rawText?: string): Promise
   let fetchedTitle = "";
 
   if (storyUrl && storyUrl.trim()) {
-    const targetUrl = storyUrl.trim();
+    let targetUrl = storyUrl.trim();
+    if (!targetUrl.startsWith("http://") && !targetUrl.startsWith("https://")) {
+      targetUrl = "https://" + targetUrl;
+    }
+    try {
+      targetUrl = encodeURI(decodeURI(targetUrl));
+    } catch {
+      // keep targetUrl
+    }
 
     // Strategy 1: Direct HTTP fetch with full browser spoof headers
     try {
       const controller = new AbortController();
-      const timeoutId = setTimeout(() => controller.abort(), 6000);
+      const timeoutId = setTimeout(() => controller.abort(), 4500);
 
       const response = await fetch(targetUrl, {
         signal: controller.signal,
@@ -165,7 +173,7 @@ async function extractStoryContent(storyUrl?: string, rawText?: string): Promise
       try {
         const readerUrl = `https://r.jina.ai/${targetUrl}`;
         const controller2 = new AbortController();
-        const timeoutId2 = setTimeout(() => controller2.abort(), 6000);
+        const timeoutId2 = setTimeout(() => controller2.abort(), 4500);
 
         const readerRes = await fetch(readerUrl, {
           signal: controller2.signal,
@@ -515,11 +523,11 @@ ${extracted.text.slice(0, 3500)}
       proposal,
     });
   } catch (err: unknown) {
-    console.error("Story analysis error:", err);
+    console.warn("Story analysis error handled:", err instanceof Error ? err.message : String(err));
     const message = err instanceof Error ? err.message : String(err);
-    return res.status(500).json({
+    return res.status(400).json({
       success: false,
-      error: `حدث خطأ أثناء فحص القصة: ${message}`,
+      error: `تعذر سحب محتوى القصة من الرابط المحدد (${message}). يمكنك لصق نص القصة مباشرة في خانة (لصق نص القصة) للبدء فوراً.`,
     });
   }
 });
