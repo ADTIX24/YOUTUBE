@@ -58,12 +58,20 @@ const DEFAULT_PRESETS = [
     url: "https://kabbos.com/%d8%a7%d9%84%d8%b6%d9%84%d8%b9-%d8%a7%d9%84%d8%b2%d8%a7%d8%a6%d8%af-%d8%ab%d9%82%d8%a8-%d9%81%d9%8a-%d8%ac%d8%af%d8%a7%d8%b1-%d8%a7%d9%84%d9%86%d9%88%d8%a7%d9%8a%d8%a7-%d9%82%d8%b5%d8%b5/",
   },
   {
+    title: "قضية أقنعة الرصاص المحيرة",
+    url: "https://kabbos.com/%d9%82%d8%b6%d9%8a%d8%a9-%d8%a3%d9%82%d9%86%d8%b9%d8%a9-%d8%a7%d9%84%d8%b1%d8%b5%d8%a7%d8%b5-%d8%a7%d9%84%d9%85%d8%ad%d9%8a%d8%b1%d8%a9/",
+  },
+  {
     title: "ساعة بلا عقارب .. لكن بضربات قلب!",
     url: "https://kabbos.com/%d8%b3%d8%a7%d8%b9%d8%a9-%d8%a8%d9%84%d8%a7-%d8%b9%d9%82%d8%a7%d8%b1%d8%a8-%d9%84%d9%83%d9%86-%d8%a8%d8%b6%d8%b1%d8%a8%d8%a7%d8%aa-%d9%82%d9%84%d8%a8/",
   },
   {
     title: "لم يطلب المال… بل طلب الشرطة",
     url: "https://kabbos.com/%d9%84%d9%85-%d9%8a%d8%b7%d9%84%d8%a8-%d8%a7%d9%84%d9%85%d8%a7%d9%84-%d8%a8%d9%84-%d8%b7%d9%84%d8%a8-%d8%a7%d9%84%d8%b4%d8%b1%d8%b7%d8%a9/",
+  },
+  {
+    title: "فخ المتعة : لعبة عابرة قادت إلى الهاوية!..",
+    url: "https://kabbos.com/%d9%81%d8%ae-%d8%a7%d9%84%d9%85%d8%aa%d8%b9%d8%a9-%d9%84%d8%b9%d8%a8%d8%a9-%d8%b9%d8%a7%d8%a8%d8%b1%d8%a9-%d9%82%d8%a7%d8%af%d8%aa-%d8%a5%d9%84%d9%89-%d8%a7%d9%84%d9%87%d8%a7%d9%88%d9%8a%d8%a9/",
   },
 ];
 
@@ -90,10 +98,11 @@ export function StoryForm({
   const [inputMode, setInputMode] = useState<"url" | "text">("url");
   const [storyUrl, setStoryUrl] = useState(DEFAULT_PRESETS[0].url);
   const [rawText, setRawText] = useState("");
+  const [formError, setFormError] = useState<string | null>(null);
 
   // Live stories from Kabbos with Refresh feature
   const [allFetchedStories, setAllFetchedStories] = useState<{ title: string; url: string }[]>(DEFAULT_PRESETS);
-  const [displayedStories, setDisplayedStories] = useState<{ title: string; url: string }[]>(DEFAULT_PRESETS);
+  const [displayedStories, setDisplayedStories] = useState<{ title: string; url: string }[]>(DEFAULT_PRESETS.slice(0, 4));
   const [isRefreshing, setIsRefreshing] = useState(false);
 
   // Fetch live stories on load
@@ -120,27 +129,36 @@ export function StoryForm({
 
   const handleShuffleStories = () => {
     if (allFetchedStories.length > 4) {
-      const shuffled = [...allFetchedStories].sort(() => 0.5 - Math.random());
-      setDisplayedStories(shuffled.slice(0, 4));
+      const remaining = allFetchedStories.filter(
+        (s) => !displayedStories.some((d) => d.url === s.url)
+      );
+      if (remaining.length >= 4) {
+        const shuffled = [...remaining].sort(() => 0.5 - Math.random());
+        setDisplayedStories(shuffled.slice(0, 4));
+      } else {
+        const shuffled = [...allFetchedStories].sort(() => 0.5 - Math.random());
+        setDisplayedStories(shuffled.slice(0, 4));
+      }
     } else {
       fetchLiveStories();
     }
   };
 
   const handleTriggerAnalysis = () => {
+    setFormError(null);
     if (!hasServerKey && !geminiKey.trim()) {
       onOpenKeysModal();
-      alert("يرجى إدخال مفتاح Gemini API أولاً في زر المفاتيح بالأعلى.");
+      setFormError("يرجى إدخال مفتاح Gemini API أولاً في زر المفاتيح بالأعلى.");
       return;
     }
 
     if (inputMode === "url" && !storyUrl.trim()) {
-      alert("يرجى إدخال رابط القصة.");
+      setFormError("يرجى إدخال رابط القصة أو اختيار إحدى القصص الجاهزة.");
       return;
     }
 
     if (inputMode === "text" && !rawText.trim()) {
-      alert("يرجى إدخال أو لصق نص القصة.");
+      setFormError("يرجى إدخال أو لصق نص القصة.");
       return;
     }
 
@@ -155,19 +173,20 @@ export function StoryForm({
   };
 
   const triggerDirectSubmit = () => {
+    setFormError(null);
     if (!hasServerKey && !geminiKey.trim()) {
       onOpenKeysModal();
-      alert("يرجى إدخال مفتاح Gemini API أولاً في زر المفاتيح بالأعلى.");
+      setFormError("يرجى إدخال مفتاح Gemini API أولاً في زر المفاتيح بالأعلى.");
       return;
     }
 
     if (inputMode === "url" && !storyUrl.trim()) {
-      alert("يرجى إدخال رابط القصة.");
+      setFormError("يرجى إدخال رابط القصة أو اختيار إحدى القصص الجاهزة.");
       return;
     }
 
     if (inputMode === "text" && !rawText.trim()) {
-      alert("يرجى إدخال أو لصق نص القصة.");
+      setFormError("يرجى إدخال أو لصق نص القصة.");
       return;
     }
 
@@ -345,6 +364,19 @@ export function StoryForm({
 
         {/* Action Buttons: Proposal Workflow vs Direct Run */}
         <div className="space-y-3 pt-2">
+          {formError && (
+            <div className="p-3 bg-red-950/80 border border-red-500/50 rounded-xl text-xs text-red-200 flex items-center justify-between gap-2">
+              <span>{formError}</span>
+              <button
+                type="button"
+                onClick={() => setFormError(null)}
+                className="text-red-400 hover:text-red-200 font-bold px-2 py-0.5 cursor-pointer"
+              >
+                ✕
+              </button>
+            </div>
+          )}
+
           {/* Primary Action Button: Director Analysis & Cadence Proposal */}
           <button
             type="button"
