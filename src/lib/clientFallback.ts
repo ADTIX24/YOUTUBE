@@ -170,6 +170,7 @@ export function buildClientSideProposal(
     extractedTextPreview: text.slice(0, 300) + "...",
     sourceUrl: userStoryUrl,
     estimatedWords: wordCount,
+    extractedText: text,
   };
 }
 
@@ -306,13 +307,28 @@ ${params.storyText.slice(0, 5000)}
   const promptEncoded = encodeURIComponent(parsedData.thumbnail_prompt || "mystery story documentary 8k");
   const thumbnailUrl = `https://image.pollinations.ai/prompt/${promptEncoded}?width=1280&height=720&nologo=true`;
 
+  const rawScenes = Array.isArray(parsedData.scenes) ? parsedData.scenes : [];
+  const scenes = rawScenes.map((sc: any, idx: number) => ({
+    scene_id: sc.scene_id || sc.scene_number || idx + 1,
+    scene_number: sc.scene_number || sc.scene_id || idx + 1,
+    narrative_stage: sc.narrative_stage || `المشهد ${idx + 1}`,
+    title: sc.title || `المشهد ${idx + 1}`,
+    voiceover: sc.voiceover || sc.voiceover_arabic || sc.narration || "",
+    narration: sc.voiceover || sc.voiceover_arabic || sc.narration || "",
+    image_prompt: sc.image_prompt || "",
+    media_type: sc.media_type === "video" ? ("video" as const) : ("image" as const),
+    motion_prompt: sc.motion_prompt || (sc.media_type === "video" ? "Slow cinematic camera push-in" : "None"),
+    visual_description: sc.visual_description || sc.image_prompt || "",
+    duration: `${Math.round((durationMin * 60) / scenesCount)} ثانية`,
+  }));
+
   return {
     title: parsedData.title || params.storyTitle || "قصة وثائقية سينمائية",
     description: parsedData.description || "",
     thumbnail_prompt: parsedData.thumbnail_prompt || "",
     thumbnail_text: parsedData.thumbnail_text || "",
-    thumbnail_url: thumbnailUrl,
-    scenes: parsedData.scenes || [],
+    generatedThumbnailUrl: thumbnailUrl,
+    scenes,
     estimatedMinutes: durationMin,
     totalScenes: scenesCount,
     videoScenesCount: targetVideoScenesCount,

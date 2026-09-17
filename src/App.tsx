@@ -62,10 +62,49 @@ export default function App() {
   const [showSettingsModal, setShowSettingsModal] = useState(false);
   const [showMcpModal, setShowMcpModal] = useState(false);
 
-  // Keys state
-  const [geminiKey, setGeminiKey] = useState("");
-  const [telegramToken, setTelegramToken] = useState("");
-  const [telegramChatId, setTelegramChatId] = useState("");
+  // Keys state (persisted to localStorage)
+  const [geminiKey, setGeminiKey] = useState<string>(() => {
+    try {
+      return localStorage.getItem("gemini_api_key") || "";
+    } catch {
+      return "";
+    }
+  });
+  const [telegramToken, setTelegramToken] = useState<string>(() => {
+    try {
+      return localStorage.getItem("telegram_token") || "";
+    } catch {
+      return "";
+    }
+  });
+  const [telegramChatId, setTelegramChatId] = useState<string>(() => {
+    try {
+      return localStorage.getItem("telegram_chat_id") || "";
+    } catch {
+      return "";
+    }
+  });
+
+  useEffect(() => {
+    try {
+      if (geminiKey) localStorage.setItem("gemini_api_key", geminiKey);
+      else localStorage.removeItem("gemini_api_key");
+    } catch {}
+  }, [geminiKey]);
+
+  useEffect(() => {
+    try {
+      if (telegramToken) localStorage.setItem("telegram_token", telegramToken);
+      else localStorage.removeItem("telegram_token");
+    } catch {}
+  }, [telegramToken]);
+
+  useEffect(() => {
+    try {
+      if (telegramChatId) localStorage.setItem("telegram_chat_id", telegramChatId);
+      else localStorage.removeItem("telegram_chat_id");
+    } catch {}
+  }, [telegramChatId]);
 
   // Facebook & Instagram config
   const [facebookConfig, setFacebookConfig] = useState<FacebookConfig>(() => {
@@ -254,6 +293,12 @@ export default function App() {
       const data = await runAnalysisRequest();
       if (data && data.success && data.proposal) {
         setProposal(data.proposal);
+        if (data.proposal.extractedText) {
+          setPendingInput({
+            storyUrl: input.storyUrl,
+            rawText: data.proposal.extractedText,
+          });
+        }
         if (data.proposal.recommendedMinutes) {
           setTargetDurationMinutes(data.proposal.recommendedMinutes);
         }
@@ -298,6 +343,10 @@ export default function App() {
         try {
           const fallbackStory = await fetchStoryClientFallback(input.storyUrl.trim());
           if (fallbackStory && fallbackStory.text) {
+            setPendingInput({
+              storyUrl: input.storyUrl,
+              rawText: fallbackStory.text,
+            });
             const clientProposal = buildClientSideProposal(
               fallbackStory.text,
               input.storyUrl,
@@ -340,10 +389,15 @@ export default function App() {
     setVideoRatioPercent(customized.videoRatioPercent);
     setAutoGenerateImages(customized.autoGenerateImages);
 
+    const resolvedRawText =
+      proposal?.extractedText ||
+      pendingInput?.rawText ||
+      "";
+
     handleStartAgent({
       geminiKey,
       storyUrl: pendingInput?.storyUrl || "",
-      rawText: pendingInput?.rawText || "",
+      rawText: resolvedRawText,
       telegramToken,
       telegramChatId,
       style: selectedStyle,
@@ -354,6 +408,53 @@ export default function App() {
       videoRatioPercent: customized.videoRatioPercent,
       autoGenerateImages: customized.autoGenerateImages,
     });
+  };
+
+  const triggerProgressiveMediaGeneration = async (resObj: StoryResult, apiKey: string) => {
+    // 1. Generate thumbnail in background if prompt exists and not generated yet
+    const thumbPrompt = resObj.thumbnail_prompt || resObj.thumbnailPrompt;
+    if (thumbPrompt && !resObj.generatedThumbnailUrl) {
+      try {
+        const thumbRes = await fetch("/api/generate-image", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ prompt: thumbPrompt, geminiKey: apiKey, aspectRatio: "16:9" }),
+        });
+        const thumbData = await thumbRes.json();
+        if (thumbData.success && thumbData.imageUrl) {
+          setResult((prev) => (prev ? { ...prev, generatedThumbnailUrl: thumbData.imageUrl } : prev));
+        }
+      } catch (e) {
+        console.warn("Background thumbnail generation error:", e);
+      }
+    }
+
+    // 2. Generate preview images for the first 2 scenes progressively
+    const scenesToGen = (resObj.scenes || []).slice(0, 2);
+    for (let i = 0; i < scenesToGen.length; i++) {
+      const sc = scenesToGen[i];
+      if (sc.image_prompt && !sc.generatedImageUrl) {
+        try {
+          const scRes = await fetch("/api/generate-image", {
+            method: "POST",
+            headers: { "Content-Type": "application/json" },
+            body: JSON.stringify({ prompt: sc.image_prompt, geminiKey: apiKey, aspectRatio: "16:9" }),
+          });
+          const scData = await scRes.json();
+          if (scData.success && scData.imageUrl) {
+            setResult((prev) => {
+              if (!prev || !prev.scenes) return prev;
+              const newScenes = prev.scenes.map((item, idx) =>
+                idx === i ? { ...item, generatedImageUrl: scData.imageUrl } : item
+              );
+              return { ...prev, scenes: newScenes };
+            });
+          }
+        } catch (e) {
+          console.warn(`Background scene image ${i + 1} error:`, e);
+        }
+      }
+    }
   };
 
   const handleStartAgent = async (params: {
@@ -431,6 +532,10 @@ export default function App() {
         if (data.telegramStatus) {
           setTelegramStatus(data.telegramStatus);
         }
+
+        if (params.autoGenerateImages) {
+          triggerProgressiveMediaGeneration(data.result, params.geminiKey || geminiKey);
+        }
         return;
       } else {
         throw new Error(data.error || "Server script generation failed");
@@ -442,13 +547,15 @@ export default function App() {
 
       console.warn("Server generation failed or timed out. Checking client fallback...", err);
 
-      // If user has geminiKey entered in UI, run client-side Gemini generation!
-      const storyTextCandidate = params.rawText || pendingInput?.rawText || "";
-      if (params.geminiKey && storyTextCandidate.length > 20) {
+      const effectiveKey = params.geminiKey || geminiKey || (typeof window !== "undefined" ? localStorage.getItem("gemini_api_key") : null) || "";
+      const storyTextCandidate = params.rawText || proposal?.extractedText || pendingInput?.rawText || "";
+
+      // If user has Gemini key (either passed or in localStorage), execute client-side generation directly!
+      if (effectiveKey && storyTextCandidate.length > 20) {
         try {
-          setLoadingText("⚡ جاري استكمال التوليد مباشرة عبر مفتاح Gemini...");
+          setLoadingText("⚡ جاري استكمال التوليد مباشرة من متصفحك عبر Gemini لضمان السرعة...");
           const clientResult = await runClientGeminiScriptGeneration({
-            geminiKey: params.geminiKey,
+            geminiKey: effectiveKey,
             storyText: storyTextCandidate,
             targetScenes: params.targetScenes,
             targetDurationMinutes: params.targetDurationMinutes,
@@ -457,6 +564,9 @@ export default function App() {
             style: params.style,
           });
           setResult(clientResult);
+          if (params.autoGenerateImages) {
+            triggerProgressiveMediaGeneration(clientResult, effectiveKey);
+          }
           return;
         } catch (clientErr) {
           console.error("Client generation also failed:", clientErr);
@@ -464,7 +574,13 @@ export default function App() {
       }
 
       const errMsg = err instanceof Error ? err.message : String(err);
-      setError(`تعذر إكمال المعالجة: ${errMsg}`);
+      if (errMsg.includes("500") || errMsg.includes("صفحة خطأ") || errMsg.includes("HTTP 50")) {
+        setError(
+          `استجاب الخادم بمهلة أو خطأ غير متوقع. لتفادي قيود خوادم Vercel والحصول على استخراج فوري بدون انقطاع، يُرجى إدخال مفتاح Gemini API المجاني الخاص بك عبر أيقونة (الإعدادات ⚙️) بالأعلى.`
+        );
+      } else {
+        setError(`تعذر إكمال المعالجة: ${errMsg}`);
+      }
     } finally {
       setIsLoading(false);
     }

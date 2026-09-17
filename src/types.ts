@@ -20,6 +20,7 @@ export interface StoryProposal {
   extractedTextPreview?: string;
   sourceUrl?: string;
   estimatedWords?: number;
+  extractedText?: string;
 }
 
 export interface CharacterTransformation {

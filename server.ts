@@ -615,6 +615,7 @@ ${extracted.text.slice(0, 3500)}
       extractedTextPreview: extracted.text.slice(0, 300) + "...",
       sourceUrl: storyUrl || "",
       estimatedWords: wordCount,
+      extractedText: extracted.text,
     };
 
     return res.json({
@@ -664,15 +665,21 @@ app.post("/api/run", async (req, res) => {
     });
   }
 
-  const extracted = await extractStoryContent(storyUrl, rawText);
-  if (extracted.error || !extracted.text || extracted.text.length < 30) {
-    return res.status(400).json({
-      success: false,
-      error: extracted.error || "نص القصة المستخرج قصير جداً أو فارغ. يرجى لصق نص القصة يدوياً.",
-    });
+  // Fast-path: If rawText is provided (e.g. from previously analyzed story or direct paste),
+  // use it directly and skip redundant, time-consuming web scraping!
+  let extractedText = "";
+  if (rawText && typeof rawText === "string" && rawText.trim().length >= 30) {
+    extractedText = rawText.trim();
+  } else {
+    const extracted = await extractStoryContent(storyUrl, rawText);
+    if (extracted.error || !extracted.text || extracted.text.length < 30) {
+      return res.status(400).json({
+        success: false,
+        error: extracted.error || "نص القصة المستخرج قصير جداً أو فارغ. يرجى لصق نص القصة يدوياً.",
+      });
+    }
+    extractedText = extracted.text;
   }
-
-  const extractedText = extracted.text;
 
   try {
     const client = getGeminiClient(resolvedKey)!;
@@ -785,71 +792,10 @@ ${extractedText.slice(0, 8000)}
       }
 
       // -------------------------------------------------------------
-      // 2. AUTOMATIC IMAGE GENERATION (Thumbnail & Scenes)
-      // Generates actual image visuals automatically so the user sees results immediately
+      // 2. Fast Media Preparation (Non-blocking for instant response)
+      // Images & Thumbnails are generated progressively or on-demand to ensure
+      // the script generation finishes within 3-5 seconds and never times out.
       // -------------------------------------------------------------
-      if (autoGenerateImages && client) {
-        // A. Generate YouTube Thumbnail
-        try {
-          const thumbPrompt =
-            parsedResult.thumbnail_prompt ||
-            parsedResult.thumbnailPrompt ||
-            `Cinematic YouTube thumbnail for ${parsedResult.title}, 8k, photorealistic, dramatic lighting, 16:9`;
-
-          console.log("Generating YouTube thumbnail image automatically...");
-          const thumbImgRes = await client.models.generateContent({
-            model: "gemini-3.1-flash-lite-image",
-            contents: {
-              parts: [{ text: thumbPrompt }],
-            },
-            config: {
-              imageConfig: {
-                aspectRatio: "16:9",
-              },
-            },
-          });
-
-          for (const part of thumbImgRes.candidates?.[0]?.content?.parts || []) {
-            if (part.inlineData?.data) {
-              parsedResult.generatedThumbnailUrl = `data:${part.inlineData.mimeType || "image/jpeg"};base64,${part.inlineData.data}`;
-              break;
-            }
-          }
-        } catch (imgErr) {
-          console.warn("Thumbnail auto-generation skipped or failed:", imgErr);
-        }
-
-        // B. Generate images for the first 3 scenes automatically for immediate preview
-        const scenesToGen = Math.min(3, parsedResult.scenes.length);
-        for (let i = 0; i < scenesToGen; i++) {
-          const sc = parsedResult.scenes[i];
-          if (sc.image_prompt) {
-            try {
-              console.log(`Generating image automatically for Scene #${i + 1}...`);
-              const scImgRes = await client.models.generateContent({
-                model: "gemini-3.1-flash-lite-image",
-                contents: {
-                  parts: [{ text: sc.image_prompt }],
-                },
-                config: {
-                  imageConfig: {
-                    aspectRatio: "16:9",
-                  },
-                },
-              });
-
-              for (const part of scImgRes.candidates?.[0]?.content?.parts || []) {
-                if (part.inlineData?.data) {
-                  sc.generatedImageUrl = `data:${part.inlineData.mimeType || "image/jpeg"};base64,${part.inlineData.data}`;
-                  break;
-                }
-              }
-            } catch (scErr) {
-              console.warn(`Scene ${i + 1} image generation error:`, scErr);
-            }
-          }
-        }
-      }
 
       // 3. Optional: Send notification to Telegram
       let telegramStatus: { sent: boolean; message?: string } | null = null;
