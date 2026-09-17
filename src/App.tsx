@@ -516,18 +516,17 @@ export default function App() {
       let data: any = null;
       try {
         data = JSON.parse(responseText);
-      } catch (parseErr) {
+      } catch {
+        // If response is not JSON, check if it's an error message
         const isHtml = responseText.includes("<html") || responseText.includes("<!DOCTYPE");
-        if (isHtml || responseText.startsWith("The page") || response.status >= 500) {
-          throw new Error(
-            `استجاب الخادم بصفحة خطأ غير متوقعة (HTTP ${response.status}).`
-          );
+        if (isHtml || response.status >= 500) {
+          throw new Error("استجاب الخادم بمهلة معالجة مؤقتة. جاري تفعيل المحاولة البديلة...");
         } else {
           throw new Error(`تعذر قراءة استجابة الخادم: ${responseText.slice(0, 150)}`);
         }
       }
 
-      if (data.success && data.result) {
+      if (data && data.success && data.result) {
         setResult(data.result);
         if (data.telegramStatus) {
           setTelegramStatus(data.telegramStatus);
@@ -538,14 +537,14 @@ export default function App() {
         }
         return;
       } else {
-        throw new Error(data.error || "Server script generation failed");
+        throw new Error(data?.error || "تعذر إكمال معالجة السيناريو من الخادم.");
       }
     } catch (err: unknown) {
       clearTimeout(stepTimer1);
       clearTimeout(stepTimer2);
       clearTimeout(stepTimer3);
 
-      console.warn("Server generation failed or timed out. Checking client fallback...", err);
+      console.warn("Server generation issue detected. Checking client fallback...", err);
 
       const effectiveKey = params.geminiKey || geminiKey || (typeof window !== "undefined" ? localStorage.getItem("gemini_api_key") : null) || "";
       const storyTextCandidate = params.rawText || proposal?.extractedText || pendingInput?.rawText || "";
@@ -574,13 +573,7 @@ export default function App() {
       }
 
       const errMsg = err instanceof Error ? err.message : String(err);
-      if (errMsg.includes("500") || errMsg.includes("صفحة خطأ") || errMsg.includes("HTTP 50")) {
-        setError(
-          `استجاب الخادم بمهلة أو خطأ غير متوقع. لتفادي قيود خوادم Vercel والحصول على استخراج فوري بدون انقطاع، يُرجى إدخال مفتاح Gemini API المجاني الخاص بك عبر أيقونة (الإعدادات ⚙️) بالأعلى.`
-        );
-      } else {
-        setError(`تعذر إكمال المعالجة: ${errMsg}`);
-      }
+      setError(`تنبيه المعالجة: ${errMsg}`);
     } finally {
       setIsLoading(false);
     }

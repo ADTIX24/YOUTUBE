@@ -39,6 +39,123 @@ function getGeminiClient(customKey?: string) {
   });
 }
 
+// Robust JSON Parser and Auto-Repair Helper
+// Handles markdown code fences, balanced brackets, trailing conversational chatter,
+// and auto-repairs truncated JSON objects when generating long multi-scene scripts.
+function parseAndRepairJson(raw: string): any {
+  if (!raw || typeof raw !== "string") {
+    throw new Error("الاستجابة النصية فارغة");
+  }
+
+  let cleaned = raw.trim();
+  // Strip markdown code fences
+  cleaned = cleaned.replace(/^```(?:json)?\s*/i, "").replace(/\s*```$/i, "").trim();
+
+  // 1. Try standard parse first
+  try {
+    return JSON.parse(cleaned);
+  } catch {}
+
+  // 2. Locate starting curly brace or bracket
+  const firstObj = cleaned.indexOf("{");
+  const firstArr = cleaned.indexOf("[");
+  let startIdx = -1;
+
+  if (firstObj !== -1 && (firstArr === -1 || firstObj < firstArr)) {
+    startIdx = firstObj;
+  } else if (firstArr !== -1) {
+    startIdx = firstArr;
+  }
+
+  if (startIdx === -1) {
+    throw new Error("لم يتم العثور على أي كائن JSON في استجابة النموذج");
+  }
+
+  // 3. Balanced brace parsing to extract exact top-level object without trailing text
+  let depth = 0;
+  let inString = false;
+  let escape = false;
+  let endIdx = -1;
+
+  for (let i = startIdx; i < cleaned.length; i++) {
+    const ch = cleaned[i];
+    if (inString) {
+      if (escape) {
+        escape = false;
+      } else if (ch === "\\") {
+        escape = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+    } else {
+      if (ch === '"') {
+        inString = true;
+      } else if (ch === "{" || ch === "[") {
+        depth++;
+      } else if (ch === "}" || ch === "]") {
+        depth--;
+        if (depth === 0) {
+          endIdx = i;
+          break;
+        }
+      }
+    }
+  }
+
+  if (endIdx !== -1) {
+    try {
+      return JSON.parse(cleaned.slice(startIdx, endIdx + 1));
+    } catch {}
+  }
+
+  // 4. If truncated or cut off due to token limits, auto-close unfinished strings and brackets
+  let s = cleaned.slice(startIdx);
+  const stack: string[] = [];
+  inString = false;
+  escape = false;
+
+  for (let i = 0; i < s.length; i++) {
+    const ch = s[i];
+    if (inString) {
+      if (escape) {
+        escape = false;
+      } else if (ch === "\\") {
+        escape = true;
+      } else if (ch === '"') {
+        inString = false;
+      }
+    } else {
+      if (ch === '"') {
+        inString = true;
+      } else if (ch === "{") {
+        stack.push("}");
+      } else if (ch === "[") {
+        stack.push("]");
+      } else if (ch === "}" || ch === "]") {
+        if (stack.length > 0 && stack[stack.length - 1] === ch) {
+          stack.pop();
+        }
+      }
+    }
+  }
+
+  if (inString) {
+    s += '"';
+  }
+
+  s = s.trim().replace(/,\s*$/, "");
+  while (stack.length > 0) {
+    const closing = stack.pop();
+    s = s.trim().replace(/,\s*$/, "") + closing;
+  }
+
+  try {
+    return JSON.parse(s);
+  } catch (repairErr: any) {
+    throw new Error(`تعذر فك ترميز استجابة JSON: ${repairErr?.message || "تنسيق غير صالح"}`);
+  }
+}
+
 // Resilient AI generation helper with multi-model fallback and automatic retry for 503 High Demand spikes
 async function generateJsonWithFallback(
   client: GoogleGenAI,
@@ -62,6 +179,8 @@ async function generateJsonWithFallback(
           contents: prompt,
           config: {
             responseMimeType: "application/json",
+            maxOutputTokens: 8192,
+            temperature: 0.4,
             ...(systemInstruction ? { systemInstruction } : {}),
           },
         });
@@ -586,7 +705,7 @@ ${extracted.text.slice(0, 3500)}
           );
 
           if (analysisJsonText) {
-            const aiData = JSON.parse(analysisJsonText);
+            const aiData = parseAndRepairJson(analysisJsonText);
             if (aiData.storyTitle) storyTitle = aiData.storyTitle;
             if (aiData.storySummary) storySummary = aiData.storySummary;
             if (aiData.genre) genre = aiData.genre;
@@ -762,16 +881,27 @@ ${extractedText.slice(0, 8000)}
         throw new Error("تعذر الحصول على استجابة من الذكاء الاصطناعي.");
       }
 
-      let parsedResult: any = null;
-      try {
-        parsedResult = JSON.parse(responseText);
-      } catch (e) {
-        const jsonMatch = responseText.match(/\{[\s\S]*\}/);
-        if (jsonMatch) {
-          parsedResult = JSON.parse(jsonMatch[0]);
-        } else {
-          throw new Error("لم يقم الذكاء الاصطناعي بإرجاع استجابة JSON صحيحة.");
-        }
+      const parsedResult = parseAndRepairJson(responseText);
+
+      if (!parsedResult.title) {
+        parsedResult.title = "قصة وثائقية سينمائية";
+      }
+      if (!Array.isArray(parsedResult.scenes) || parsedResult.scenes.length === 0) {
+        parsedResult.scenes = [
+          {
+            scene_id: 1,
+            scene_number: 1,
+            narrative_stage: "Introduction",
+            title: "المشهد 1: المقدمة المشوقة",
+            voiceover: extractedText.slice(0, 150),
+            narration: extractedText.slice(0, 150),
+            image_prompt: "Cinematic establishing shot, dramatic lighting, 8k, photorealistic, 16:9",
+            media_type: "video",
+            motion_prompt: "Slow cinematic push-in",
+            visual_description: "Cinematic establishing shot, dramatic lighting, 8k",
+            duration: "60 ثانية",
+          }
+        ];
       }
 
       // Normalize scenes format
@@ -838,7 +968,7 @@ ${extractedText.slice(0, 8000)}
       if (rawMessage.includes("503") || rawMessage.includes("high demand") || rawMessage.includes("UNAVAILABLE")) {
         userFriendlyError = "نموذج الذكاء الاصطناعي يشهد ضغطاً مؤقتاً في الطلبات (503 High Demand). يُرجى النقر على إعادة المحاولة بعد ثوانٍ قليلة.";
       }
-      return res.status(500).json({
+      return res.status(200).json({
         success: false,
         error: `حدث خطأ أثناء معالجة القصة وتوليد المشاهد: ${userFriendlyError}`,
       });
