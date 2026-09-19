@@ -6,6 +6,18 @@ export interface PlannedSceneCadence {
   tension_level?: "low" | "medium" | "high" | "peak";
 }
 
+export interface LockedCharacter {
+  id: string;
+  name: string; // e.g. "دكتور طاهر" أو "المحقق كريم" أو "الطفلة سلمى"
+  role: string; // e.g. "البطل الرئيسي", "المحقق", "الشخصية الغامضة"
+  ageGender: string; // e.g. "رجل في الأربعينات", "شاب في العشرينات", "طفلة في السابعة"
+  visualFeatures: string; // ملامح الوجه والشعر ولون البشرة والعينين والعلامات المميزة
+  clothingAnchor: string; // اللباس الثابت المميز والألوان التي يرتديها في كل المشاهد
+  consistencyPromptSnippet: string; // النص الإنجليزي الإلزامي الذي يتم حقنه في أوامر الصور لتثبيت الهوية
+  referenceImageUrl?: string;
+  isGeneratingRefImage?: boolean;
+}
+
 export interface StoryProposal {
   storyTitle: string;
   storySummary: string;
@@ -17,10 +29,15 @@ export interface StoryProposal {
   recommendedImageScenesCount: number;
   retentionStrategy: string;
   cadenceMap: PlannedSceneCadence[];
+  lockedCharacters?: LockedCharacter[];
   extractedTextPreview?: string;
   sourceUrl?: string;
   estimatedWords?: number;
   extractedText?: string;
+  visualStyle?: string;
+  narrationStyle?: string;
+  aspectRatio?: "16:9" | "9:16";
+  cameraMotion?: string;
 }
 
 export interface CharacterTransformation {
@@ -41,6 +58,8 @@ export interface StoryScene {
   motion_prompt?: string;
   visual_description?: string;
   duration?: string;
+  characters_present?: string[]; // أسماء الشخصيات الحاضرة في هذا المشهد
+  character_consistency_anchor?: string; // المقتطف المثبت للشخصيات الحاضرة
   // Generated Media
   generatedImageUrl?: string;
   generatedVideoUrl?: string;
@@ -64,6 +83,10 @@ export interface StoryResult {
   language?: "ar" | "en";
   estimatedMinutes?: number;
   style?: string;
+  visualStyle?: string;
+  narrationStyle?: string;
+  aspectRatio?: "16:9" | "9:16";
+  lockedCharacters?: LockedCharacter[];
   characterTransformations?: CharacterTransformation[];
   scenes: StoryScene[];
   youtubeTags?: string[];

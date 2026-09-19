@@ -595,8 +595,108 @@ app.get("/api/health", (_req, res) => {
 });
 
 // -------------------------------------------------------------
+// Helper: Extract or Build Locked Invariant Characters
+// Guarantees character visual consistency across all generated scenes
+// -------------------------------------------------------------
+function extractOrBuildLockedCharacters(
+  text: string,
+  title: string,
+  visualStyle: string,
+  existingChars?: any[]
+): any[] {
+  if (Array.isArray(existingChars) && existingChars.length > 0) {
+    return existingChars.map((c: any, idx: number) => ({
+      id: c.id || `char_${idx + 1}`,
+      name: c.name || `الشخصية ${idx + 1}`,
+      role: c.role || "الشخصية الرئيسية",
+      ageGender: c.ageGender || "شخصية محورية",
+      visualFeatures: c.visualFeatures || "ملامح وجه ثابتة متناسقة، نظرة حادة، تفاصيل ملامح مميزة لا تتغير",
+      clothingAnchor: c.clothingAnchor || "لباس مميز بألوان محددة ثابتة عبر جميع المشاهد لمنع تشتت المشاهد",
+      consistencyPromptSnippet: c.consistencyPromptSnippet || `Consistent character [${c.name || "Protagonist"}]: same facial structure, same hair, identical signature clothing across all scenes`,
+      referenceImageUrl: c.referenceImageUrl || "",
+    }));
+  }
+
+  // Algorithmic heuristic extraction from story text & title
+  const cleanTitle = title || "";
+  const characters: any[] = [];
+
+  // Child-friendly / Animation detection
+  const isKidsOrCartoon = visualStyle.toLowerCase().includes("أطفال") || 
+                          visualStyle.toLowerCase().includes("كرتون") || 
+                          visualStyle.toLowerCase().includes("3d pixar") || 
+                          visualStyle.toLowerCase().includes("أنيمي") ||
+                          text.includes("الأطفال") || text.includes("طفل") || text.includes("صغير");
+
+  if (isKidsOrCartoon) {
+    characters.push({
+      id: "char_hero_child",
+      name: "بطل القصة الصغير",
+      role: "البطل المحبوب المستكشف",
+      ageGender: "طفل لطيف في السابعة من عمره بملامح كرتونية دافئة",
+      visualFeatures: "شعر بني كثيف ومبعثر قليلاً، عينان بنيتان كبيرتان براقتان مليئتان بالفضول، خدود وردية ممتلئة",
+      clothingAnchor: "كنزة صوفية صفراء خردلية زاهية مع سترة جينز زرقاء داكنة وحذاء رياضي أحمر مميز لا يتغير في أي مشهد",
+      consistencyPromptSnippet: "Consistent character [Young Hero]: adorable 7-year-old child, messy chestnut brown hair, oversized expressive sparkling brown eyes, wearing signature mustard yellow knit sweater with navy denim overalls, distinct cute stylized proportions",
+    });
+  } else if (cleanTitle.includes("طاهر") || text.includes("طاهر بك") || text.includes("الساحر")) {
+    characters.push({
+      id: "char_taher",
+      name: "طاهر بك",
+      role: "البطل والساحر المصري الغامض",
+      ageGender: "شاب مصري وسيم في مطلع الثلاثينيات (32 سنة)",
+      visualFeatures: "بشرة قمحية مصرية، شعر أسود كلاسيكي ممشط بعناية للخلف، شارب رفيع مشذب بدقة، عينان سوداوان ثاقبتان بنظرة تنويم مغناطيسي حادة",
+      clothingAnchor: "بدلة توكسيدو أرستقراطية سوداء من ثلاث قطع تعود لطراز الثلاثينيات، قميص أبيض ناصع، وربطة عنق حريرية داكنة ثابتة في كل المشاهد",
+      consistencyPromptSnippet: "Consistent character [Taher Bey]: same 32-year-old Egyptian gentleman, slicked-back vintage dark wavy hair, thin trimmed pencil mustache, piercing intense dark brown eyes, wearing identical 1930s tailored charcoal three-piece suit with crisp white collar and burgundy tie",
+    });
+  } else if (cleanTitle.includes("الضلع") || text.includes("الجراح") || text.includes("الطبيب")) {
+    characters.push({
+      id: "char_surgeon",
+      name: "الدكتور الجراح سليم",
+      role: "البطل الرئيسي الباحث عن الحقيقة الطبية",
+      ageGender: "رجل في أواخر الأربعينات (48 سنة)",
+      visualFeatures: "شعر رمادي خفيف عند الصدغين، نظارة طبية فضية مستطيلة، ملامح وجه جادة ومرهقة من العمليات الجراحية",
+      clothingAnchor: "معطف طبي أبيض فوق قميص أزرق فاتح وربطة عنق رمادية، وساعة يد جلدية كلاسيكية ثابتة في كل المشاهد",
+      consistencyPromptSnippet: "Consistent character [Dr. Salim]: same 48-year-old chief surgeon, silver-rimmed rectangular glasses, salt-and-pepper short hair, fatigued observant dark eyes, wearing identical white lab coat over light blue collared shirt and gray tie",
+    });
+  } else if (cleanTitle.includes("أقنعة") || text.includes("المهندسين") || text.includes("قناع")) {
+    characters.push({
+      id: "char_miguel",
+      name: "المهندس ميغيل",
+      role: "المهندس الباحث عن الإشارة الغامضة",
+      ageGender: "رجل لاتيني في أواخر الثلاثينيات (38 سنة)",
+      visualFeatures: "ملامح لاتينية، شعر أسود قصير ممشط، نظرة متوترة ومترقبة",
+      clothingAnchor: "بدلة رمادية داكنة مع معطف واقٍ من المطر (Trench Coat) بيج فاتح، وقناع رصاصي بيضاوي مميز يحمله أو يرتديه في كل المشاهد",
+      consistencyPromptSnippet: "Consistent character [Miguel]: same 38-year-old Latin engineer, short neat dark hair, tense focused expression, wearing identical beige waterproof trench coat over charcoal suit, carrying handcrafted oval lead mask",
+    });
+  } else if (cleanTitle.includes("ساعة") || text.includes("المحقق") || text.includes("اللغز")) {
+    characters.push({
+      id: "char_investigator",
+      name: "المحقق ريان",
+      role: "المحقق الوقور الباحث في خيوط الجريمة",
+      ageGender: "رجل مسن وقور في أوائل الستينيات (60 سنة)",
+      visualFeatures: "لحية بيضاء أنيقة مشذبة، تجاعيد حكمة حول العينين الزرقاوين، شعر أبيض مموج",
+      clothingAnchor: "معطف صوفي بني غامق عريض الأزرار، قبعة فيدورا رمادية، ووشاح كشميري كحلي ثابت في كل المشاهد",
+      consistencyPromptSnippet: "Consistent character [Investigator Ryan]: same 60-year-old distinguished investigator, neat short white beard, piercing pale eyes, wearing identical dark brown tweed trench coat and navy wool scarf",
+    });
+  } else {
+    // Default protagonist anchor based on text
+    characters.push({
+      id: "char_main",
+      name: "بطل القصة الرئيسي",
+      role: "الشخصية المركزية الحاملة للحدث",
+      ageGender: "شخصية محورية في مطلع الثلاثينيات",
+      visualFeatures: "ملامح وجه سينمائية محددة بدقة، شعر داكن مهندم، نظرة عميقة متأملة ومترقبة للمفاجآت",
+      clothingAnchor: "معطف جلدي أو صوفي أسود داكن وأزرار فضية مميزة ثابتة عبر كل المشاهد",
+      consistencyPromptSnippet: "Consistent protagonist: same recognizable facial structure, same dark styled hair, same signature charcoal overcoat, identical visual identity throughout all scenes",
+    });
+  }
+
+  return characters;
+}
+
+// -------------------------------------------------------------
 // 0. STORY PRE-GENERATION DIRECTOR'S ANALYSIS & PROPOSAL
-// Proposes duration (5-40 min), scenes count, videos count, and cadence
+// Proposes duration (5-40 min), scenes count, videos count, cadence, and locked characters
 // -------------------------------------------------------------
 app.post("/api/analyze-story", async (req, res) => {
   const {
@@ -606,6 +706,13 @@ app.post("/api/analyze-story", async (req, res) => {
     targetDurationMinutes = 15,
     storyLanguage = "ar",
     style = "سينمائي مشوق ومثير (YouTube Viral)",
+    visualStyle,
+    narrationStyle,
+    aspectRatio = "16:9",
+    cameraMotion,
+    storyTitle: providedTitle,
+    targetScenes: providedScenes,
+    videoRatioPercent: providedVideoRatio,
   } = req.body || {};
 
   if (!storyUrl && !rawText) {
@@ -617,7 +724,7 @@ app.post("/api/analyze-story", async (req, res) => {
 
   try {
     const extracted = await extractStoryContent(storyUrl, rawText);
-    if (extracted.error || !extracted.text || extracted.text.length < 30) {
+    if (extracted.error || !extracted.text || extracted.text.length < 20) {
       return res.status(400).json({
         success: false,
         error: extracted.error || "نص القصة المستخرج قصير جداً أو فارغ.",
@@ -648,10 +755,15 @@ app.post("/api/analyze-story", async (req, res) => {
       recommendedMinutes = Math.max(5, Math.min(40, Number(req.body.targetDurationMinutes)));
     }
 
-    const recommendedScenesCount = Math.max(6, Math.min(45, Math.round(recommendedMinutes * 1.15)));
+    let recommendedScenesCount = Math.max(6, Math.min(150, Math.round(recommendedMinutes * 1.5)));
+    if (providedScenes && Number(providedScenes) >= 4) {
+      recommendedScenesCount = Math.max(4, Math.min(150, Number(providedScenes)));
+    }
+
+    const effectiveRatio = providedVideoRatio !== undefined ? Number(providedVideoRatio) : 30;
     const recommendedVideoScenesCount = Math.max(
-      2,
-      Math.min(Math.round(recommendedScenesCount * 0.28), recommendedScenesCount - 4)
+      1,
+      Math.min(Math.round((recommendedScenesCount * effectiveRatio) / 100), recommendedScenesCount - 1)
     );
     const recommendedImageScenesCount = recommendedScenesCount - recommendedVideoScenesCount;
 
@@ -661,19 +773,24 @@ app.post("/api/analyze-story", async (req, res) => {
       isEnglish
     );
 
-    let storyTitle = extracted.title || (isEnglish ? "Untitled Mystery" : "قصة سينمائية غامضة");
+    let storyTitle = providedTitle || extracted.title || (isEnglish ? "Untitled Mystery" : "قصة سينمائية غامضة");
     let storySummary = isEnglish
       ? "A gripping mystery filled with psychological tension, escalating suspense, and shocking twists."
       : "قصة مشوقة مليئة بالغموض والإثارة والتصاعد الدرامي غير المتوقع التي تجذب انتباه المشاهد.";
-    let genre = style.includes("رعب")
+    const activeStyle = narrationStyle || style;
+    let genre = activeStyle.includes("رعب")
       ? "رعب نفسي وتشويق"
-      : style.includes("تاريخ")
+      : activeStyle.includes("تاريخ")
       ? "وثائقي تاريخي ملحمي"
+      : activeStyle.includes("استقصائي")
+      ? "وثائقي استقصائي وتحقيق"
       : "غموض وتحقيق سينمائي";
 
     let retentionStrategy = isEnglish
-      ? `Strategic alternation placing ${recommendedVideoScenesCount} dynamic video hooks at critical emotional peaks (hook, midpoint, climax, and resolution), separated by 3-4 atmospheric 4K images to eliminate viewer fatigue and maximize YouTube retention.`
-      : `توزيع احترافي مدروس يضع ${recommendedVideoScenesCount} مشاهد فيديو حركية عند المنعطفات الدرامية الحاسمة (الخطاف الافتتاحي، الصدمة الأولى، نقطة التحول المركزية، ذروة الأحداث، والختام)، تتخللها صور 4K غنية بالتفاصيل، مما يكسر الرتابة ويمنع ملل المشاهد ويضمن أعلى معدل إكمال للفيديو على يوتيوب.`;
+      ? `Strategic alternation placing ${recommendedVideoScenesCount} dynamic video hooks at critical emotional peaks, separated by atmospheric images to eliminate viewer fatigue and maximize YouTube retention.`
+      : `توزيع احترافي مدروس يضع ${recommendedVideoScenesCount} مشاهد فيديو حركية عند المنعطفات الدرامية الحاسمة، تتخللها صور غنية بالتفاصيل بطراز (${visualStyle || "سينمائي 8K"})، مما يكسر الرتابة ويمنع ملل المشاهد ويضمن أعلى معدل إكمال للفيديو على يوتيوب.`;
+
+    let extractedLockedChars: any[] = [];
 
     // Semantic refinement with Gemini if available
     const resolvedKey = (geminiKey && geminiKey.trim()) || process.env.GEMINI_API_KEY;
@@ -683,19 +800,30 @@ app.post("/api/analyze-story", async (req, res) => {
         try {
           const prompt = `
 أنت مخرج وثائقي سينمائي أول ومسؤول مونتاج واحتفاظ المشاهد (Audience Retention Director).
-قم بفحص نص القصة التالي وتقديم تقييم سينمائي أولي سريع قبل مرحلة التوليد:
+قم بفحص نص القصة التالي واستخراج تقييم سينمائي وتثبيت الهوية البصرية للشخصيات الرئيسية (Character Continuity Locking) إجبارياً لمنع تشتت المشاهد:
 
-نص القصة (مقتطف):
+نص القصة أو الفكرة:
 ${extracted.text.slice(0, 3500)}
 
 المطلوب استخراجه بدقة بصيغة JSON فقط:
 {
-  "storyTitle": "${isEnglish ? "Engaging YouTube Title" : "عنوان غامض جذاب ومثير للفضول"}",
+  "storyTitle": "${storyTitle || (isEnglish ? "Engaging YouTube Title" : "عنوان غامض جذاب ومثير للفضول")}",
   "storySummary": "${isEnglish ? "2 concise sentences summarizing the premise" : "ملخص مكثف في جملتين يبرز لغز القصة وجوهر الإثارة"}",
   "genre": "${isEnglish ? "Mystery / Thriller / Documentary" : "غموض سينمائي / رعب نفسي / استقصائي"}",
   "narrativeDensity": "${narrativeDensity}",
   "recommendedMinutes": ${recommendedMinutes},
-  "retentionStrategy": "${isEnglish ? "Why this video-to-image cadence prevents boredom" : "شرح مقنع بأسلوب مخرج سينمائي لكيفية حماية المشاهد من الملل عبر توزيع الفيديوهات والصور"}"
+  "retentionStrategy": "${isEnglish ? "Why this video-to-image cadence prevents boredom" : "شرح مقنع بأسلوب مخرج سينمائي لكيفية حماية المشاهد من الملل عبر توزيع الفيديوهات والصور"}",
+  "lockedCharacters": [
+    {
+      "id": "char_1",
+      "name": "اسم الشخصية",
+      "role": "دور الشخصية (البطل الرئيسي / الخصم / المحقق / الطفل)",
+      "ageGender": "العمر والمظهر العام",
+      "visualFeatures": "الملامح الفيزيائية الثابتة الإلزامية: تفاصيل الوجه، لون وشكل الشعر، لون العينين، النظارات أو العلامات الفارقة التي لن تتغير أبداً",
+      "clothingAnchor": "اللباس الثابت والألوان المميزة التي يرتديها في كافة المشاهد لضمان عدم تشتت المشاهد",
+      "consistencyPromptSnippet": "Consistent character [Character Name]: invariant English facial traits, hair, eye color, signature clothing anchor"
+    }
+  ]
 }
 `;
           const analysisJsonText = await generateJsonWithFallback(
@@ -706,12 +834,15 @@ ${extracted.text.slice(0, 3500)}
 
           if (analysisJsonText) {
             const aiData = parseAndRepairJson(analysisJsonText);
-            if (aiData.storyTitle) storyTitle = aiData.storyTitle;
+            if (!providedTitle && aiData.storyTitle) storyTitle = aiData.storyTitle;
             if (aiData.storySummary) storySummary = aiData.storySummary;
             if (aiData.genre) genre = aiData.genre;
             if (aiData.retentionStrategy) retentionStrategy = aiData.retentionStrategy;
-            if (aiData.recommendedMinutes && aiData.recommendedMinutes >= 5 && aiData.recommendedMinutes <= 40) {
+            if (aiData.recommendedMinutes && aiData.recommendedMinutes >= 5 && aiData.recommendedMinutes <= 40 && !req.body.targetDurationMinutes) {
               recommendedMinutes = aiData.recommendedMinutes;
+            }
+            if (Array.isArray(aiData.lockedCharacters) && aiData.lockedCharacters.length > 0) {
+              extractedLockedChars = aiData.lockedCharacters;
             }
           }
         } catch (gemErr) {
@@ -719,6 +850,13 @@ ${extracted.text.slice(0, 3500)}
         }
       }
     }
+
+    const lockedCharacters = extractOrBuildLockedCharacters(
+      extracted.text,
+      storyTitle,
+      visualStyle || "سينمائي واقعي 8K",
+      extractedLockedChars
+    );
 
     const proposal = {
       storyTitle,
@@ -731,10 +869,15 @@ ${extracted.text.slice(0, 3500)}
       recommendedImageScenesCount,
       retentionStrategy,
       cadenceMap,
+      lockedCharacters,
       extractedTextPreview: extracted.text.slice(0, 300) + "...",
       sourceUrl: storyUrl || "",
       estimatedWords: wordCount,
       extractedText: extracted.text,
+      visualStyle,
+      narrationStyle: activeStyle,
+      aspectRatio,
+      cameraMotion,
     };
 
     return res.json({
@@ -767,6 +910,11 @@ app.post("/api/run", async (req, res) => {
     targetDurationMinutes = 15,
     videoRatioPercent = 30, // Percentage of scenes to be marked as "video" (Veo)
     autoGenerateImages = true, // If true, generates the thumbnail & scene images automatically
+    visualStyle,
+    narrationStyle,
+    aspectRatio = "16:9",
+    cameraMotion,
+    lockedCharacters: reqLockedCharacters,
   } = req.body || {};
 
   const resolvedKey = (geminiKey && geminiKey.trim()) || process.env.GEMINI_API_KEY;
@@ -787,11 +935,11 @@ app.post("/api/run", async (req, res) => {
   // Fast-path: If rawText is provided (e.g. from previously analyzed story or direct paste),
   // use it directly and skip redundant, time-consuming web scraping!
   let extractedText = "";
-  if (rawText && typeof rawText === "string" && rawText.trim().length >= 30) {
+  if (rawText && typeof rawText === "string" && rawText.trim().length >= 20) {
     extractedText = rawText.trim();
   } else {
     const extracted = await extractStoryContent(storyUrl, rawText);
-    if (extracted.error || !extracted.text || extracted.text.length < 30) {
+    if (extracted.error || !extracted.text || extracted.text.length < 20) {
       return res.status(400).json({
         success: false,
         error: extracted.error || "نص القصة المستخرج قصير جداً أو فارغ. يرجى لصق نص القصة يدوياً.",
@@ -803,29 +951,36 @@ app.post("/api/run", async (req, res) => {
   try {
     const client = getGeminiClient(resolvedKey)!;
     const isEnglish = storyLanguage === "en";
-    const durationMin = Math.max(5, Math.min(40, Number(targetDurationMinutes) || 15));
-    const scenesCount = Math.max(6, Math.min(45, Number(targetScenes) || Math.round(durationMin * 1.15)));
+    const durationMin = Math.max(5, Math.min(60, Number(targetDurationMinutes) || 15));
+    const scenesCount = Math.max(4, Math.min(150, Number(targetScenes) || Math.round(durationMin * 1.5)));
     const targetVideoScenesCount = Math.max(1, Math.round((scenesCount * Math.max(10, videoRatioPercent)) / 100));
+    const effectiveVisualStyle = visualStyle || "سينمائي واقعي خارق 8K (Cinematic Hyper-Realistic 8K, 35mm film)";
+    const effectiveNarrationStyle = narrationStyle || style;
+    const effectiveAspectRatio = aspectRatio === "9:16" ? "9:16 (Vertical format for Shorts/Reels)" : "16:9 (Cinematic Widescreen for YouTube)";
+    const effectiveCameraMotion = cameraMotion || "Slow cinematic push-in, subtle pan, dramatic steadycam";
 
     // Lead Documentary Editor & Audio-Visual Lock (20-35 words voiceover per scene)
     const prompt = `
 أنت مخرج وثائقي ومسؤول مونتاج أول (Lead Documentary Editor & Pacing Director).
-مهمتك تحويل أحداث القصة المعطاة إلى جدول تسلسل سينمائي دقيق متطابق سمعياً وبصرياً عبر ${scenesCount} مشهداً بإجمالي مدة تقديرية ${durationMin} دقيقة.
+مهمتك تحويل أحداث القصة المعطاة أو فكرة القصة المبتكرة إلى جدول تسلسل سينمائي دقيق متطابق سمعياً وبصرياً عبر ${scenesCount} مشهداً بإجمالي مدة تقديرية ${durationMin} دقيقة.
 
 قواعد السيناريو الصارمة لمنع الأخطاء والملل:
 1. حجم النص الصوتي (Strict Duration Match):
    - لكل مشهد: يجب أن يتراوح نص الإلقاء الصوتي (voiceover) بين 20 إلى 35 كلمة فقط ${isEnglish ? "باللغة الإنجليزية السردية الدرامية المشوقة" : "بالفصحى المشوقة الغامضة"}.
    - يمنع منعاً باتاً كتابة فقرات طويلة أو قصيرة جداً داخل مشهد واحد (التزم بمعدل 20-35 كلمة بدقة).
+   - أسلوب ونبرة السرد الصوتي الإلزامية: "${effectiveNarrationStyle}".
 
-2. التطابق السمعي-البصري الكامل (Audio-Visual Lock):
+2. التطابق السمعي-البصري الكامل وشكل الرسومات (Audio-Visual Lock & Art Style):
    - العناصر المذكورة في نص المشهد الصوتي هي ذاتها حصراً التي يتم تصويرها في "image_prompt" و "motion_prompt".
-   - البرومبت البصري بالإنجليزية (image_prompt) يجب أن يحدد:
-     * الموضوع الرئيسي (Subject).
-     * البيئة والإضاءة (Environment & Lighting: Dark, 8k, cinematic, photorealistic, 16:9).
-     * حركة الكاميرا إن كان فيديو (Camera movement: Slow push-in, pan, tracking, zoom).
+   - شكل وطراز الرسومات الفنية (Art / Visual Style): "${effectiveVisualStyle}".
+     * يجب أن تلتزم جميع الـ "image_prompt" والـ "thumbnail_prompt" بهذا الطراز الجمالي الفني بدقة باللغة الإنجليزية.
+   - أبعاد الصورة والفيديو (Aspect Ratio): "${effectiveAspectRatio}".
+     * يجب أن تبدأ أوصاف image_prompt و thumbnail_prompt بالإنجليزية بذكر: "${aspectRatio === "9:16" ? "Vertical 9:16 aspect ratio" : "16:9 widescreen aspect ratio"}, ${effectiveVisualStyle}".
+   - حركة الكاميرا لمشاهد الفيديو (Camera Motion Dynamics): "${effectiveCameraMotion}".
 
 3. سلامة الحبكة وتفادي التكرار (Narrative Flow):
    - تسلسل زمني تصاعدي مستمر دون تكرار للأفكار أو العبارات عبر ${scenesCount} مشهداً.
+   - إذا كان الإدخال فكرة قصة أو طلباً لتأليف قصة بالذكاء الاصطناعي، قم بتأليف قصة كاملة محبوكة سينمائياً تشد المشاهد من اللحظة الأولى حتى النهاية الصادمة.
    - تغيير أسماء الأشخاص والبلدات غير الرئيسية لحماية الملكية الفكرية (Anti-Copyright) مع الحفاظ على مصداقية وجوهر القصة.
 
 4. توزيع المشاهد المتحركة والصور (Strategic Cadence to prevent viewer boredom):
@@ -833,16 +988,35 @@ app.post("/api/run", async (req, res) => {
      * المشهد 1 دائماً فيديو حركي (Hook) لشد انتباه المشاهد في أول 5 ثوانٍ.
      * المشاهد في المنتصف (نقطة التحول Midpoint) ولحظة الذروة (Climax) والخاتمة تكون فيديو.
      * تتخللها صور 4K للمشاهد السردية والاستكشافية (media_type: "image")، بحيث لا تتوالى أكثر من 3 إلى 5 صور دون مشهد فيديو منعاً للملل.
-   - في حال كان media_type هو "video"، اكتب "motion_prompt" سينمائي بالإنجليزية لحركة الكاميرا (مثل Slow pan, push-in, tracking). إذا كان "image" اكتب "None".
+   - في حال كان media_type هو "video"، اكتب "motion_prompt" سينمائي بالإنجليزية لحركة الكاميرا متوافقاً مع (${effectiveCameraMotion}). إذا كان "image" اكتب "None".
+
+5. تثبيت الهوية البصرية للشخصيات (Mandatory Character Continuity & Consistency Locking - إجباري قطعي):
+   - قاعدة ذهبية حاسمة: يجب منع تشتت أو ضياع المشاهد إطلاقاً عبر تثبيت ملامح وشعر ولون بشرة ولباس كل شخصية تظهر في القصة 100%.
+   - استخرج وثبّت الشخصيات الرئيسية في مصفوفة "lockedCharacters" مع تفاصيل الوجه واللباس المميز الثابت و"consistencyPromptSnippet" بالإنجليزية.
+   - في كل مشهد من مصفوفة "scenes" تظهر فيه أي شخصية:
+     * يجب تحديد اسم الشخصية في "characters_present": ["اسم الشخصية"].
+     * يجب وضع كود التثبيت في "character_consistency_anchor".
+     * في "image_prompt": يجب حتماً حقن كود التثبيت البصري "consistencyPromptSnippet" داخل الأمر (مثال: [Character Anchor: same 32-year-old Egyptian man, slicked dark hair, vintage three-piece charcoal suit]) بحيث تخرج ملامح الشخصية ولباسها متطابقة في كل المشاهد التي تظهر فيها بدون أي تغيير!
 
 التنسيق الإجباري للمخرجات (JSON فقط ومطابق تماماً لهذا النموذج):
 {
   "title": "${isEnglish ? "High CTR YouTube Title in English" : "عنوان جذاب وغامض لليوتيوب بالعربية"}",
   "description": "${isEnglish ? "Full YouTube description with timestamps and viral hashtags" : "الوصف التفصيلي مع الهاشتاجات لليوتيوب"}",
-  "thumbnail_prompt": "Cinematic YouTube thumbnail, extreme facial tension, photorealistic, 8k, dramatic chiaroscuro lighting, 16:9 aspect ratio, viral mystery style",
+  "thumbnail_prompt": "${aspectRatio === "9:16" ? "Vertical 9:16" : "16:9 widescreen"}, ${effectiveVisualStyle}, extreme facial tension, chiaroscuro lighting, viral mystery style",
   "thumbnail_text": "${isEnglish ? "Bold punchy thumbnail text" : "نص الغلاف العريض الجذاب"}",
   "language": "${isEnglish ? "en" : "ar"}",
   "estimatedMinutes": ${durationMin},
+  "lockedCharacters": [
+    {
+      "id": "char_1",
+      "name": "اسم الشخصية",
+      "role": "دور الشخصية (البطل / المحقق / الخصم)",
+      "ageGender": "العمر والمظهر العام",
+      "visualFeatures": "الملامح الثابتة: شكل الوجه، الشعر، العينين، البشرة، النظارات أو العلامات المميزة التي لا تتغير",
+      "clothingAnchor": "اللباس الثابت والألوان المميزة التي يرتديها في كل المشاهد لضمان عدم تشتت المشاهد",
+      "consistencyPromptSnippet": "Consistent character [Name]: same invariant face, hair, signature clothing anchor"
+    }
+  ],
   "characterTransformations": [
     { "original": "الاسم القديم", "adapted": "الاسم الجديد", "role": "دور الشخصية" }
   ],
@@ -850,24 +1024,20 @@ app.post("/api/run", async (req, res) => {
   "scenes": [
     {
       "scene_id": 1,
-      "narrative_stage": "Introduction",
-      "voiceover": "نص السرد الصوتي الخاص بالمشهد الأول حصراً (بين 20 إلى 35 كلمة)...",
-      "image_prompt": "Cinematic 16:9, exact visual match to voiceover, photorealistic, dramatic light, 8k...",
+      "narrative_stage": "Hook & Opening Anomaly",
+      "title": "${isEnglish ? "Scene 1: The First Clue" : "المشهد 1: اللغز الأول الصادم"}",
+      "voiceover": "${isEnglish ? "20-35 words voiceover text hooking the viewer" : "نص الإلقاء الصوتي بالفصحى المشوقة بين 20 إلى 35 كلمة"}",
       "media_type": "video",
-      "motion_prompt": "Slow camera push-in towards the subject"
-    },
-    {
-      "scene_id": 2,
-      "narrative_stage": "Rising Action",
-      "voiceover": "نص السرد الصوتي الخاص بالمشهد الثاني المكمل للأحداث (بين 20 إلى 35 كلمة)...",
-      "image_prompt": "Cinematic 16:9, exact visual match to voiceover, highly detailed...",
-      "media_type": "image",
-      "motion_prompt": "None"
+      "characters_present": ["اسم الشخصية الحاضرة"],
+      "character_consistency_anchor": "Consistent character [Name]: same invariant face, hair, signature clothing",
+      "image_prompt": "${aspectRatio === "9:16" ? "Vertical 9:16" : "16:9 widescreen"}, ${effectiveVisualStyle}, [Character Anchor: Consistent character...], detailed English prompt describing the opening hook subject and atmosphere",
+      "motion_prompt": "Slow cinematic push-in towards the subject, subtle camera tilt",
+      "visual_description": "وصف المشهد الإخراجي بالعربية مع بيان الشخصية الحاضرة ولباسها الثابت"
     }
   ]
 }
 
-نص القصة الأصلي للاقتباس وإعادة الصياغة:
+نص القصة الأصلي أو الفكرة للاقتباس وتطوير السيناريو:
 ${extractedText.slice(0, 8000)}
 `;
 
@@ -883,10 +1053,29 @@ ${extractedText.slice(0, 8000)}
 
       const parsedResult = parseAndRepairJson(responseText);
 
+      parsedResult.visualStyle = visualStyle || "سينمائي واقعي خارق 8K";
+      parsedResult.narrationStyle = narrationStyle || style;
+      parsedResult.aspectRatio = (aspectRatio === "9:16" ? "9:16" : "16:9") as "16:9" | "9:16";
+
       if (!parsedResult.title) {
         parsedResult.title = "قصة وثائقية سينمائية";
       }
+
+      // Enforce Locked Characters & Character Consistency Locking
+      const effectiveLockedCharacters = extractOrBuildLockedCharacters(
+        extractedText,
+        parsedResult.title,
+        effectiveVisualStyle,
+        Array.isArray(parsedResult.lockedCharacters) && parsedResult.lockedCharacters.length > 0
+          ? parsedResult.lockedCharacters
+          : Array.isArray(reqLockedCharacters) && reqLockedCharacters.length > 0
+          ? reqLockedCharacters
+          : undefined
+      );
+      parsedResult.lockedCharacters = effectiveLockedCharacters;
+
       if (!Array.isArray(parsedResult.scenes) || parsedResult.scenes.length === 0) {
+        const primaryChar = effectiveLockedCharacters[0];
         parsedResult.scenes = [
           {
             scene_id: 1,
@@ -895,30 +1084,81 @@ ${extractedText.slice(0, 8000)}
             title: "المشهد 1: المقدمة المشوقة",
             voiceover: extractedText.slice(0, 150),
             narration: extractedText.slice(0, 150),
-            image_prompt: "Cinematic establishing shot, dramatic lighting, 8k, photorealistic, 16:9",
+            image_prompt: `${aspectRatio === "9:16" ? "Vertical 9:16" : "16:9 widescreen"}, ${effectiveVisualStyle}, [Character Anchor: ${primaryChar?.consistencyPromptSnippet || "consistent protagonist"}], Cinematic establishing shot, dramatic lighting, 8k`,
             media_type: "video",
             motion_prompt: "Slow cinematic push-in",
-            visual_description: "Cinematic establishing shot, dramatic lighting, 8k",
+            visual_description: "Cinematic establishing shot with locked character appearance, dramatic lighting, 8k",
             duration: "60 ثانية",
+            characters_present: primaryChar ? [primaryChar.name] : [],
+            character_consistency_anchor: primaryChar?.consistencyPromptSnippet || "",
           }
         ];
       }
 
-      // Normalize scenes format
+      // Normalize scenes format and strictly enforce character consistency snippets
       if (Array.isArray(parsedResult.scenes)) {
-        parsedResult.scenes = parsedResult.scenes.map((s: any, idx: number) => ({
-          scene_id: s.scene_id || idx + 1,
-          scene_number: s.scene_id || idx + 1,
-          narrative_stage: s.narrative_stage || `Stage ${idx + 1}`,
-          title: s.title || `المشهد ${idx + 1}: ${s.narrative_stage || ""}`,
-          voiceover: s.voiceover || s.narration || "",
-          narration: s.voiceover || s.narration || "",
-          image_prompt: s.image_prompt || "",
-          media_type: s.media_type === "video" ? "video" : "image",
-          motion_prompt: s.motion_prompt || (s.media_type === "video" ? "Slow cinematic camera push-in" : "None"),
-          visual_description: s.visual_description || s.image_prompt || "",
-          duration: `${Math.round(durationMin * 60 / scenesCount)} ثانية`,
-        }));
+        parsedResult.scenes = parsedResult.scenes.map((s: any, idx: number) => {
+          let present: string[] = Array.isArray(s.characters_present) ? [...s.characters_present] : [];
+          
+          // Detect character appearance from voiceover or visual description
+          for (const char of effectiveLockedCharacters) {
+            if (!present.includes(char.name)) {
+              const charName = (char.name || "").toLowerCase();
+              const vo = (s.voiceover || s.narration || "").toLowerCase();
+              const vis = (s.visual_description || "").toLowerCase();
+              if (charName.length > 2 && (vo.includes(charName) || vis.includes(charName))) {
+                present.push(char.name);
+              }
+            }
+          }
+
+          // In early hook or dramatic scenes, if no character was tagged, lock the protagonist
+          if (present.length === 0 && effectiveLockedCharacters.length > 0) {
+            if (idx === 0 || idx % 2 === 0) {
+              present.push(effectiveLockedCharacters[0].name);
+            }
+          }
+
+          // Build character consistency anchor
+          const matchedChars = effectiveLockedCharacters.filter((c: any) => present.includes(c.name));
+          const consistencySnippetList = matchedChars.map((c: any) => c.consistencyPromptSnippet).filter(Boolean);
+          const consistencyAnchor = consistencySnippetList.join("; ");
+
+          let imagePrompt = s.image_prompt || `${aspectRatio === "9:16" ? "Vertical 9:16" : "16:9 widescreen"}, ${effectiveVisualStyle}`;
+
+          // Inject consistency snippet into image_prompt if missing
+          if (consistencySnippetList.length > 0) {
+            for (const snip of consistencySnippetList) {
+              const checkSnippet = snip.slice(0, 30).toLowerCase();
+              if (!imagePrompt.toLowerCase().includes(checkSnippet)) {
+                if (imagePrompt.includes(effectiveVisualStyle)) {
+                  imagePrompt = imagePrompt.replace(
+                    effectiveVisualStyle,
+                    `${effectiveVisualStyle}, [Character Anchor: ${snip}]`
+                  );
+                } else {
+                  imagePrompt = `[Character Anchor: ${snip}], ${imagePrompt}`;
+                }
+              }
+            }
+          }
+
+          return {
+            scene_id: s.scene_id || idx + 1,
+            scene_number: s.scene_id || idx + 1,
+            narrative_stage: s.narrative_stage || `Stage ${idx + 1}`,
+            title: s.title || `المشهد ${idx + 1}: ${s.narrative_stage || ""}`,
+            voiceover: s.voiceover || s.narration || "",
+            narration: s.voiceover || s.narration || "",
+            image_prompt: imagePrompt,
+            media_type: s.media_type === "video" ? "video" : "image",
+            motion_prompt: s.motion_prompt || (s.media_type === "video" ? "Slow cinematic camera push-in" : "None"),
+            visual_description: s.visual_description || s.image_prompt || "",
+            duration: `${Math.round(durationMin * 60 / scenesCount)} ثانية`,
+            characters_present: present,
+            character_consistency_anchor: consistencyAnchor,
+          };
+        });
       }
 
       // -------------------------------------------------------------

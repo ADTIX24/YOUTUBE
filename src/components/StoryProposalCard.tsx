@@ -48,10 +48,18 @@ export function StoryProposalCard({
   // When duration changes, suggest recalculated scenes
   const handleDurationChange = (val: number) => {
     setDurationMinutes(val);
-    const newScenes = Math.max(6, Math.min(45, Math.round(val * 1.15)));
+    const newScenes = Math.max(6, Math.min(120, Math.round(val * 1.5)));
     setTotalScenes(newScenes);
-    const newVideos = Math.max(2, Math.min(Math.round(newScenes * 0.28), newScenes - 4));
+    const newVideos = Math.max(2, Math.min(Math.round(newScenes * 0.28), newScenes - 2));
     setVideoScenesCount(newVideos);
+  };
+
+  const handleTotalScenesChange = (val: number) => {
+    const clamped = Math.max(4, Math.min(120, val));
+    setTotalScenes(clamped);
+    if (videoScenesCount >= clamped) {
+      setVideoScenesCount(Math.max(1, Math.round(clamped * 0.3)));
+    }
   };
 
   const imageScenesCount = Math.max(0, totalScenes - videoScenesCount);
@@ -110,6 +118,16 @@ export function StoryProposalCard({
             <span className="text-[11px] px-2 py-0.5 rounded-md bg-purple-500/20 text-purple-300 border border-purple-500/30">
               كثافة السرد: {proposal.narrativeDensity === "epic" ? "ملحمية" : proposal.narrativeDensity === "dense" ? "غنية بالأحداث" : proposal.narrativeDensity === "light" ? "سريعة وموجزة" : "متوسطة ومتوازنة"}
             </span>
+            {proposal.visualStyle && (
+              <span className="text-[11px] px-2 py-0.5 rounded-md bg-pink-500/20 text-pink-300 border border-pink-500/30">
+                🎨 {proposal.visualStyle}
+              </span>
+            )}
+            {proposal.aspectRatio && (
+              <span className="text-[11px] px-2 py-0.5 rounded-md bg-indigo-500/20 text-indigo-300 border border-indigo-500/30 font-mono">
+                📐 {proposal.aspectRatio}
+              </span>
+            )}
             {proposal.estimatedWords && (
               <span className="text-[11px] text-slate-500 font-mono">
                 ~{proposal.estimatedWords} كلمة
@@ -119,6 +137,70 @@ export function StoryProposalCard({
         </div>
         <p className="text-xs text-slate-300 leading-relaxed">{proposal.storySummary}</p>
       </div>
+
+      {/* Mandatory Character Consistency & Locked Identity Anchors */}
+      {proposal.lockedCharacters && proposal.lockedCharacters.length > 0 && (
+        <div className="bg-gradient-to-r from-emerald-950/40 via-slate-950 to-teal-950/30 p-4 rounded-xl border border-emerald-500/40 space-y-3">
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <div className="flex items-center gap-2">
+              <span className="text-emerald-400 text-sm">🔒</span>
+              <h4 className="text-xs font-bold text-emerald-300">
+                تثبيت الشخصيات الإجباري (Mandatory Character Continuity Lock):
+              </h4>
+            </div>
+            <span className="text-[10px] bg-emerald-500/20 text-emerald-300 border border-emerald-500/30 px-2 py-0.5 rounded-full font-bold">
+              نشط إجبارياً لمنع تشتت المشاهد
+            </span>
+          </div>
+
+          <p className="text-[11px] text-slate-300 leading-relaxed">
+            تم قفل الهوية البصرية والملامح الدقيقة واللباس الثابت لكل شخصية، وسيتم حقن كود التثبيت في كافة المشاهد لضمان عدم تغير وجه أو لباس الشخصية إطلاقاً عبر الفيديو:
+          </p>
+
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-2.5">
+            {proposal.lockedCharacters.map((char, cIdx) => (
+              <div
+                key={char.id || cIdx}
+                className="bg-slate-900/90 border border-emerald-500/30 rounded-xl p-3 text-xs space-y-1.5"
+              >
+                <div className="flex items-center justify-between">
+                  <span className="font-bold text-emerald-300 text-sm flex items-center gap-1">
+                    <span>👤</span> {char.name}
+                  </span>
+                  <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-slate-700 font-semibold">
+                    {char.role}
+                  </span>
+                </div>
+
+                {char.ageGender && (
+                  <div className="text-[11px] text-slate-400">
+                    <span className="text-slate-500">المظهر: </span>
+                    {char.ageGender}
+                  </div>
+                )}
+
+                <div className="text-[11px] text-slate-300">
+                  <span className="text-emerald-400/90 font-semibold">الملامح الثابتة: </span>
+                  {char.visualFeatures}
+                </div>
+
+                <div className="text-[11px] text-slate-300">
+                  <span className="text-amber-400/90 font-semibold">اللباس الثابت: </span>
+                  {char.clothingAnchor}
+                </div>
+
+                {char.consistencyPromptSnippet && (
+                  <div className="pt-1 border-t border-slate-800/80">
+                    <div className="text-[10px] text-slate-400 font-mono bg-slate-950 px-2 py-1 rounded border border-slate-800 truncate" title={char.consistencyPromptSnippet}>
+                      Prompt Anchor: {char.consistencyPromptSnippet}
+                    </div>
+                  </div>
+                )}
+              </div>
+            ))}
+          </div>
+        </div>
+      )}
 
       {/* Hero Stats Grid (The Core Proposal Metrics) */}
       <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
@@ -293,12 +375,12 @@ export function StoryProposalCard({
 
         {showAdjustments && (
           <div className="mt-3 bg-slate-950 p-4 rounded-xl border border-slate-800 space-y-4 animate-in fade-in duration-200">
-            {/* Duration Slider (5 to 40 minutes) */}
+            {/* Duration Slider (5 to 60 minutes) */}
             <div className="space-y-1.5">
               <div className="flex justify-between text-xs font-semibold text-slate-300">
                 <span className="flex items-center gap-1 text-amber-400">
                   <Clock className="w-3.5 h-3.5" />
-                  مدة الفيديو (5 إلى 40 دقيقة):
+                  مدة الفيديو (5 إلى 60 دقيقة):
                 </span>
                 <span className="font-bold text-amber-300 bg-amber-500/10 px-2 py-0.5 rounded border border-amber-500/30 font-mono">
                   {durationMinutes} دقيقة
@@ -307,17 +389,50 @@ export function StoryProposalCard({
               <input
                 type="range"
                 min="5"
-                max="40"
+                max="60"
                 step="1"
                 value={durationMinutes}
                 onChange={(e) => handleDurationChange(Number(e.target.value))}
                 className="w-full accent-amber-500 bg-slate-800 cursor-pointer h-2 rounded-lg"
               />
               <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-                <span>5 د (قصير)</span>
+                <span>5 د</span>
                 <span>15 د (موصى به)</span>
-                <span>25 د</span>
-                <span>40 د (وثائقي كامل)</span>
+                <span>35 د</span>
+                <span>60 د (وثائقي كامل)</span>
+              </div>
+            </div>
+
+            {/* Total Scenes Count Slider & Input */}
+            <div className="space-y-1.5">
+              <div className="flex justify-between text-xs font-semibold text-slate-300">
+                <span className="flex items-center gap-1 text-indigo-400">
+                  <Film className="w-3.5 h-3.5" />
+                  إجمالي عدد المشاهد (حر حتى 120 مشهداً):
+                </span>
+                <div className="flex items-center gap-2">
+                  <span className="font-bold text-indigo-300 bg-indigo-500/10 px-2 py-0.5 rounded border border-indigo-500/30 font-mono">
+                    {totalScenes} مشهد
+                  </span>
+                  <span className="text-[10px] text-slate-400">
+                    (~{Math.round((durationMinutes * 60) / Math.max(1, totalScenes))} ث/مشهد)
+                  </span>
+                </div>
+              </div>
+              <input
+                type="range"
+                min="4"
+                max="120"
+                step="1"
+                value={totalScenes}
+                onChange={(e) => handleTotalScenesChange(Number(e.target.value))}
+                className="w-full accent-indigo-500 bg-slate-800 cursor-pointer h-2 rounded-lg"
+              />
+              <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+                <span>4 مشاهد (سريع)</span>
+                <span>40 مشهد</span>
+                <span>80 مشهد</span>
+                <span>120 مشهد (مفصل جداً)</span>
               </div>
             </div>
 

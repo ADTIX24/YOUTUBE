@@ -137,6 +137,10 @@ export default function App() {
   const [targetScenes, setTargetScenes] = useState(15);
   const [storyLanguage, setStoryLanguage] = useState<"ar" | "en">("ar");
   const [selectedStyle, setSelectedStyle] = useState(STORY_STYLES[0].id);
+  const [selectedVisualStyle, setSelectedVisualStyle] = useState<string>("سينمائي واقعي خارق 8K");
+  const [selectedNarrationStyle, setSelectedNarrationStyle] = useState<string>("غموض سينمائي وتشويق حابس للأنفاس");
+  const [selectedAspectRatio, setSelectedAspectRatio] = useState<"16:9" | "9:16">("16:9");
+  const [selectedCameraMotion, setSelectedCameraMotion] = useState<string>("Slow cinematic push-in");
   const [videoRatioPercent, setVideoRatioPercent] = useState(30); // 30% Veo video scenes by default
   const [autoGenerateImages, setAutoGenerateImages] = useState(true);
 
@@ -247,11 +251,33 @@ export default function App() {
     }
   };
 
-  const handleAnalyzeStory = async (input: { storyUrl: string; rawText: string }) => {
+  const handleAnalyzeStory = async (input: {
+    storyUrl: string;
+    rawText: string;
+    visualStyle?: string;
+    narrationStyle?: string;
+    aspectRatio?: "16:9" | "9:16";
+    cameraMotion?: string;
+    targetDurationMinutes?: number;
+    targetScenes?: number;
+    videoRatioPercent?: number;
+    storyTitle?: string;
+  }) => {
     setIsAnalyzing(true);
     setError(null);
     setProposal(null);
-    setPendingInput(input);
+    setPendingInput({
+      storyUrl: input.storyUrl,
+      rawText: input.rawText,
+    });
+
+    if (input.visualStyle) setSelectedVisualStyle(input.visualStyle);
+    if (input.narrationStyle) setSelectedNarrationStyle(input.narrationStyle);
+    if (input.aspectRatio) setSelectedAspectRatio(input.aspectRatio);
+    if (input.cameraMotion) setSelectedCameraMotion(input.cameraMotion);
+    if (input.targetDurationMinutes) setTargetDurationMinutes(input.targetDurationMinutes);
+    if (input.targetScenes) setTargetScenes(input.targetScenes);
+    if (input.videoRatioPercent !== undefined) setVideoRatioPercent(input.videoRatioPercent);
 
     const runAnalysisRequest = async (isRetry = false): Promise<any> => {
       const response = await fetch("/api/analyze-story", {
@@ -261,9 +287,16 @@ export default function App() {
           geminiKey,
           storyUrl: input.storyUrl,
           rawText: input.rawText,
-          targetDurationMinutes,
+          targetDurationMinutes: input.targetDurationMinutes || targetDurationMinutes,
           storyLanguage,
-          style: selectedStyle,
+          style: input.narrationStyle || selectedStyle,
+          visualStyle: input.visualStyle || selectedVisualStyle,
+          narrationStyle: input.narrationStyle || selectedNarrationStyle,
+          aspectRatio: input.aspectRatio || selectedAspectRatio,
+          cameraMotion: input.cameraMotion || selectedCameraMotion,
+          storyTitle: input.storyTitle,
+          targetScenes: input.targetScenes || targetScenes,
+          videoRatioPercent: input.videoRatioPercent !== undefined ? input.videoRatioPercent : videoRatioPercent,
         }),
       });
 
@@ -292,6 +325,11 @@ export default function App() {
     try {
       const data = await runAnalysisRequest();
       if (data && data.success && data.proposal) {
+        if (input.visualStyle) data.proposal.visualStyle = input.visualStyle;
+        if (input.narrationStyle) data.proposal.narrationStyle = input.narrationStyle;
+        if (input.aspectRatio) data.proposal.aspectRatio = input.aspectRatio;
+        if (input.cameraMotion) data.proposal.cameraMotion = input.cameraMotion;
+
         setProposal(data.proposal);
         if (data.proposal.extractedText) {
           setPendingInput({
@@ -324,9 +362,15 @@ export default function App() {
           input.rawText.trim(),
           "",
           targetDurationMinutes,
-          selectedStyle,
+          input.narrationStyle || selectedStyle,
           storyLanguage
         );
+        clientProposal.visualStyle = input.visualStyle || selectedVisualStyle;
+        clientProposal.narrationStyle = input.narrationStyle || selectedNarrationStyle;
+        clientProposal.aspectRatio = input.aspectRatio || selectedAspectRatio;
+        clientProposal.cameraMotion = input.cameraMotion || selectedCameraMotion;
+        if (input.storyTitle) clientProposal.storyTitle = input.storyTitle;
+
         setProposal(clientProposal as any);
         if (clientProposal.recommendedMinutes) setTargetDurationMinutes(clientProposal.recommendedMinutes);
         if (clientProposal.recommendedScenesCount) setTargetScenes(clientProposal.recommendedScenesCount);
@@ -400,17 +444,24 @@ export default function App() {
       rawText: resolvedRawText,
       telegramToken,
       telegramChatId,
-      style: selectedStyle,
+      style: proposal?.narrationStyle || selectedNarrationStyle || selectedStyle,
       targetScenes: customized.totalScenes,
       storyLanguage,
       targetDurationMinutes: customized.durationMinutes,
       selectedChannelId,
       videoRatioPercent: customized.videoRatioPercent,
       autoGenerateImages: customized.autoGenerateImages,
+      visualStyle: proposal?.visualStyle || selectedVisualStyle,
+      narrationStyle: proposal?.narrationStyle || selectedNarrationStyle,
+      aspectRatio: proposal?.aspectRatio || selectedAspectRatio,
+      cameraMotion: proposal?.cameraMotion || selectedCameraMotion,
+      lockedCharacters: proposal?.lockedCharacters,
     });
   };
 
   const triggerProgressiveMediaGeneration = async (resObj: StoryResult, apiKey: string) => {
+    const targetAspect = resObj.aspectRatio || selectedAspectRatio || "16:9";
+
     // 1. Generate thumbnail in background if prompt exists and not generated yet
     const thumbPrompt = resObj.thumbnail_prompt || resObj.thumbnailPrompt;
     if (thumbPrompt && !resObj.generatedThumbnailUrl) {
@@ -418,7 +469,7 @@ export default function App() {
         const thumbRes = await fetch("/api/generate-image", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ prompt: thumbPrompt, geminiKey: apiKey, aspectRatio: "16:9" }),
+          body: JSON.stringify({ prompt: thumbPrompt, geminiKey: apiKey, aspectRatio: targetAspect }),
         });
         const thumbData = await thumbRes.json();
         if (thumbData.success && thumbData.imageUrl) {
@@ -438,7 +489,7 @@ export default function App() {
           const scRes = await fetch("/api/generate-image", {
             method: "POST",
             headers: { "Content-Type": "application/json" },
-            body: JSON.stringify({ prompt: sc.image_prompt, geminiKey: apiKey, aspectRatio: "16:9" }),
+            body: JSON.stringify({ prompt: sc.image_prompt, geminiKey: apiKey, aspectRatio: targetAspect }),
           });
           const scData = await scRes.json();
           if (scData.success && scData.imageUrl) {
@@ -470,6 +521,11 @@ export default function App() {
     selectedChannelId: string;
     videoRatioPercent: number;
     autoGenerateImages: boolean;
+    visualStyle?: string;
+    narrationStyle?: string;
+    aspectRatio?: "16:9" | "9:16";
+    cameraMotion?: string;
+    lockedCharacters?: any[];
   }) => {
     setIsLoading(true);
     setError(null);
@@ -561,6 +617,10 @@ export default function App() {
             videoRatioPercent: params.videoRatioPercent,
             storyLanguage: params.storyLanguage,
             style: params.style,
+            visualStyle: params.visualStyle || proposal?.visualStyle,
+            narrationStyle: params.narrationStyle || proposal?.narrationStyle,
+            aspectRatio: params.aspectRatio || proposal?.aspectRatio,
+            cameraMotion: params.cameraMotion || proposal?.cameraMotion,
           });
           setResult(clientResult);
           if (params.autoGenerateImages) {

@@ -571,6 +571,64 @@ export function StoryResultView({
           </div>
         )}
 
+        {/* Mandatory Locked Characters & Continuity Anchors */}
+        {result.lockedCharacters && result.lockedCharacters.length > 0 && (
+          <div className="mt-6 pt-5 border-t border-slate-800">
+            <div className="flex flex-wrap items-center justify-between gap-2 mb-3">
+              <h4 className="text-xs font-bold text-emerald-400 uppercase tracking-wider flex items-center gap-1.5">
+                <span>🔒</span>
+                تثبيت الشخصيات الإجباري (Mandatory Character Continuity Anchors):
+              </h4>
+              <span className="text-[10px] bg-emerald-500/15 text-emerald-300 border border-emerald-500/30 px-2.5 py-0.5 rounded-full font-bold">
+                مثبتة 100% في جميع الأوامر لمنع تشتت المشاهد
+              </span>
+            </div>
+
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+              {result.lockedCharacters.map((char, i) => (
+                <div
+                  key={char.id || i}
+                  className="bg-slate-950 border border-emerald-500/30 rounded-xl p-3.5 text-xs space-y-1.5 shadow-sm"
+                >
+                  <div className="flex items-center justify-between">
+                    <span className="font-bold text-emerald-300 text-sm flex items-center gap-1">
+                      <span>👤</span> {char.name}
+                    </span>
+                    <span className="text-[10px] bg-slate-800 text-slate-300 px-2 py-0.5 rounded border border-slate-700 font-semibold">
+                      {char.role}
+                    </span>
+                  </div>
+
+                  {char.ageGender && (
+                    <div className="text-[11px] text-slate-400">
+                      <span className="text-slate-500">المظهر: </span>
+                      {char.ageGender}
+                    </div>
+                  )}
+
+                  <div className="text-[11px] text-slate-300">
+                    <span className="text-emerald-400 font-semibold">الملامح الثابتة: </span>
+                    {char.visualFeatures}
+                  </div>
+
+                  <div className="text-[11px] text-slate-300">
+                    <span className="text-amber-400 font-semibold">اللباس الثابت: </span>
+                    {char.clothingAnchor}
+                  </div>
+
+                  {char.consistencyPromptSnippet && (
+                    <div className="pt-1 border-t border-slate-800">
+                      <div className="text-[10px] font-mono text-emerald-400/80 bg-slate-900 p-1.5 rounded border border-slate-800 break-all select-all">
+                        {char.consistencyPromptSnippet}
+                      </div>
+                    </div>
+                  )}
+                </div>
+              ))}
+            </div>
+          </div>
+        )}
+
         {/* Character Transformations Map */}
         {result.characterTransformations && result.characterTransformations.length > 0 && (
           <div className="mt-6 pt-5 border-t border-slate-800">
@@ -737,6 +795,28 @@ export function StoryResultView({
                   {scene.voiceover || scene.narration}
                 </div>
               </div>
+
+              {/* Character Continuity & Visual Lock Badge for this scene */}
+              {(scene.characters_present && scene.characters_present.length > 0) || scene.character_consistency_anchor ? (
+                <div className="bg-emerald-950/30 border border-emerald-500/30 rounded-xl px-3 py-2 text-xs flex flex-wrap items-center justify-between gap-2">
+                  <div className="flex items-center gap-2">
+                    <span className="text-emerald-400">🔒</span>
+                    <span className="font-semibold text-emerald-300">
+                      الشخصيات الحاضرة وتثبيت الهوية:
+                    </span>
+                    {scene.characters_present && scene.characters_present.map((charName, cI) => (
+                      <span key={cI} className="bg-emerald-500/20 text-emerald-200 border border-emerald-500/30 px-2 py-0.5 rounded text-[11px] font-bold">
+                        👤 {charName}
+                      </span>
+                    ))}
+                  </div>
+                  {scene.character_consistency_anchor && (
+                    <span className="text-[10px] text-slate-400 font-mono bg-slate-950 px-2 py-0.5 rounded border border-slate-800" title={scene.character_consistency_anchor}>
+                      Anchor Locked: {scene.character_consistency_anchor.slice(0, 45)}...
+                    </span>
+                  )}
+                </div>
+              ) : null}
 
               {/* Image / Video Prompt Details */}
               <div className="grid grid-cols-1 md:grid-cols-2 gap-3">

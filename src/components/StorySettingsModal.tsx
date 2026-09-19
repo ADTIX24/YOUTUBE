@@ -23,6 +23,7 @@ interface StorySettingsModalProps {
 
 export const STORY_STYLES = [
   { id: "سينمائي مشوق ومثير (YouTube Viral)", label: "سينمائي مشوق ومثير (YouTube Viral)" },
+  { id: "قصة أطفال دافئة ومشوقة (Kids & Family Friendly)", label: "🧸 قصة أطفال دافئة وتربوية مشوقة (Kids)" },
   { id: "غموض وتحقيق استقصائي داكن (True Crime & Mystery)", label: "غموض وتحقيق استقصائي داكن" },
   { id: "رعب نفسي وتشويق عميق (Psychological Horror)", label: "رعب نفسي وتشويق عميق" },
   { id: "ملحمة أسطورية وتاريخية (Historical Documentary)", label: "ملحمة أسطورية وتاريخية" },
@@ -52,7 +53,7 @@ export function StorySettingsModal({
 
   const handleDurationChange = (minutes: number) => {
     setTargetDurationMinutes(minutes);
-    const calculatedScenes = Math.min(45, Math.max(6, Math.round(minutes * 1.15)));
+    const calculatedScenes = Math.min(120, Math.max(6, Math.round(minutes * 1.5)));
     setTargetScenes(calculatedScenes);
   };
 
@@ -206,17 +207,17 @@ export function StorySettingsModal({
             <input
               type="range"
               min="5"
-              max="40"
+              max="60"
               step="1"
               value={targetDurationMinutes}
               onChange={(e) => handleDurationChange(Number(e.target.value))}
               className="w-full accent-amber-500 bg-slate-800 cursor-pointer h-2 rounded-lg"
             />
             <div className="flex justify-between text-[10px] text-slate-500 font-mono">
-              <span>5 دقائق (قصير ومركز)</span>
-              <span>15 دقيقة (افتراضي)</span>
-              <span>25 دقيقة</span>
-              <span>40 دقيقة (سرد وثائقي طويل)</span>
+              <span>5 د (قصير)</span>
+              <span>15 د (افتراضي)</span>
+              <span>35 د (سرد طويل)</span>
+              <span>60 د (وثائقي كامل)</span>
             </div>
           </div>
 
@@ -233,13 +234,19 @@ export function StorySettingsModal({
             </div>
             <input
               type="range"
-              min="6"
-              max="45"
+              min="4"
+              max="120"
               step="1"
               value={targetScenes}
               onChange={(e) => setTargetScenes(Number(e.target.value))}
               className="w-full accent-indigo-500 bg-slate-800 cursor-pointer h-2 rounded-lg"
             />
+            <div className="flex justify-between text-[10px] text-slate-500 font-mono">
+              <span>4 مشاهد</span>
+              <span>40 مشهداً</span>
+              <span>80 مشهداً</span>
+              <span>120 مشهداً</span>
+            </div>
           </div>
 
           {/* Directing Style */}

@@ -1,5 +1,6 @@
 // Client-side resilience and fallback engine
 // Ensures the application NEVER fails even if Vercel serverless functions time out or encounter a 500 error
+import { StoryProposal } from "../types";
 
 const CURATED_PRESETS_DATA: Record<string, { title: string; text: string }> = {
   "طاهر بك": {
@@ -44,14 +45,15 @@ export function buildClientSideProposal(
   userStoryUrl = "",
   targetDurationMinutes = 15,
   style = "سينمائي مشوق ومثير (YouTube Viral)",
-  storyLanguage: "ar" | "en" = "ar"
-) {
+  storyLanguage: "ar" | "en" = "ar",
+  targetScenes?: number
+): StoryProposal {
   const isEnglish = storyLanguage === "en";
   const words = text.split(/\s+/).filter(Boolean);
   const wordCount = words.length;
 
   let narrativeDensity: "light" | "medium" | "dense" | "epic" = "medium";
-  let recommendedMinutes = Math.max(5, Math.min(40, Number(targetDurationMinutes) || 15));
+  let recommendedMinutes = Math.max(5, Math.min(60, Number(targetDurationMinutes) || 15));
 
   if (wordCount < 400) {
     narrativeDensity = "light";
@@ -64,17 +66,20 @@ export function buildClientSideProposal(
     recommendedMinutes = Math.max(18, Math.min(28, Math.round(wordCount / 80)));
   } else {
     narrativeDensity = "epic";
-    recommendedMinutes = Math.max(25, Math.min(40, Math.round(wordCount / 90)));
+    recommendedMinutes = Math.max(25, Math.min(45, Math.round(wordCount / 90)));
   }
 
   if (targetDurationMinutes) {
-    recommendedMinutes = Math.max(5, Math.min(40, targetDurationMinutes));
+    recommendedMinutes = Math.max(5, Math.min(60, targetDurationMinutes));
   }
 
-  const recommendedScenesCount = Math.max(6, Math.min(45, Math.round(recommendedMinutes * 1.15)));
+  let recommendedScenesCount = Math.max(6, Math.min(150, Math.round(recommendedMinutes * 1.5)));
+  if (targetScenes && targetScenes >= 4) {
+    recommendedScenesCount = Math.max(4, Math.min(150, targetScenes));
+  }
   const recommendedVideoScenesCount = Math.max(
     2,
-    Math.min(Math.round(recommendedScenesCount * 0.28), recommendedScenesCount - 4)
+    Math.min(Math.round(recommendedScenesCount * 0.28), recommendedScenesCount - 2)
   );
   const recommendedImageScenesCount = recommendedScenesCount - recommendedVideoScenesCount;
 
@@ -156,6 +161,47 @@ export function buildClientSideProposal(
     ? `Strategic distribution alternating ${recommendedVideoScenesCount} dynamic video scenes with atmospheric 4K images to maximize YouTube retention.`
     : `توزيع احترافي مدروس يضع ${recommendedVideoScenesCount} مشاهد فيديو حركية عند المنعطفات الدرامية الحاسمة، تتخللها صور 4K لمنع الملل وتحقيق أعلى معدل إكمال للفيديو على يوتيوب.`;
 
+  // Extract locked characters for visual consistency
+  const isKidsOrCartoon = (style || "").toLowerCase().includes("أطفال") || 
+                          (style || "").toLowerCase().includes("كرتون") ||
+                          text.includes("طفل") || text.includes("أطفال");
+
+  const lockedCharacters = isKidsOrCartoon
+    ? [
+        {
+          id: "char_hero_child",
+          name: "بطل القصة الصغير",
+          role: "البطل المحبوب المستكشف",
+          ageGender: "طفل في السابعة بملامح كرتونية دافئة",
+          visualFeatures: "شعر بني كثيف مبعثر، عينان بنيتان كبيرتان براقتان، ابتسامة بريئة",
+          clothingAnchor: "كنزة صوفية صفراء خردلية وسروال جينز أزرق داكن وحذاء رياضي أحمر مميز لا يتغير في أي مشهد",
+          consistencyPromptSnippet: "Consistent character [Young Hero]: 7-year-old child, messy chestnut brown hair, large expressive sparkling eyes, wearing mustard yellow sweater with navy denim pants",
+        }
+      ]
+    : text.includes("طاهر بك") || storyTitle.includes("طاهر")
+    ? [
+        {
+          id: "char_taher",
+          name: "طاهر بك",
+          role: "البطل والساحر المصري الغامض",
+          ageGender: "شاب مصري وسيم في مطلع الثلاثينيات (32 سنة)",
+          visualFeatures: "بشرة قمحية مصرية، شعر أسود كلاسيكي ممشط للخلف، شارب رفيع مشذب بدقة، عينان سوداوان ثاقبتان",
+          clothingAnchor: "بدلة توكسيدو أرستقراطية سوداء من ثلاث قطع تعود لطراز الثلاثينيات، قميص أبيض ناصع، وربطة عنق حريرية داكنة ثابتة في كل المشاهد",
+          consistencyPromptSnippet: "Consistent character [Taher Bey]: same 32-year-old Egyptian gentleman, slicked-back vintage dark hair, thin trimmed pencil mustache, piercing intense dark eyes, wearing identical 1930s tailored charcoal three-piece suit with white collar",
+        }
+      ]
+    : [
+        {
+          id: "char_main",
+          name: "بطل القصة الرئيسي",
+          role: "الشخصية المركزية الحاملة للحدث",
+          ageGender: "شخصية محورية في الثلاثينيات",
+          visualFeatures: "ملامح وجه سينمائية محددة بدقة، شعر داكن مهندم، نظرة عميقة متأملة ومترقبة",
+          clothingAnchor: "معطف صوفي أو جلدي أسود داكن بأزرار فضية مميزة ثابتة عبر كل المشاهد",
+          consistencyPromptSnippet: "Consistent protagonist: same recognizable facial structure, same dark styled hair, same signature charcoal overcoat, identical visual identity throughout all scenes",
+        }
+      ];
+
   return {
     storyTitle,
     storySummary,
@@ -167,6 +213,7 @@ export function buildClientSideProposal(
     recommendedImageScenesCount,
     retentionStrategy,
     cadenceMap,
+    lockedCharacters,
     extractedTextPreview: text.slice(0, 300) + "...",
     sourceUrl: userStoryUrl,
     estimatedWords: wordCount,
@@ -235,11 +282,19 @@ export async function runClientGeminiScriptGeneration(params: {
   videoRatioPercent: number;
   storyLanguage: "ar" | "en";
   style: string;
+  visualStyle?: string;
+  narrationStyle?: string;
+  aspectRatio?: "16:9" | "9:16";
+  cameraMotion?: string;
 }): Promise<any> {
   const isEnglish = params.storyLanguage === "en";
   const durationMin = params.targetDurationMinutes || 15;
   const scenesCount = params.targetScenes || 15;
   const targetVideoScenesCount = Math.max(1, Math.round((scenesCount * Math.max(10, params.videoRatioPercent)) / 100));
+  const activeArt = params.visualStyle || "Cinematic Hyper-Realistic 8K, 35mm film";
+  const activeNarration = params.narrationStyle || params.style;
+  const activeRatio = params.aspectRatio === "9:16" ? "Vertical 9:16" : "16:9 widescreen";
+  const activeCam = params.cameraMotion || "Slow cinematic push-in";
 
   const prompt = `
 أنت مخرج وثائقي ومسؤول مونتاج أول (Lead Documentary Editor & Pacing Director).
@@ -247,18 +302,22 @@ export async function runClientGeminiScriptGeneration(params: {
 
 قواعد السيناريو:
 1. حجم النص الصوتي: لكل مشهد بين 20 إلى 35 كلمة صوتية ${isEnglish ? "باللغة الإنجليزية الدرامية" : "بالفصحى المشوقة الغامضة"}.
-2. التطابق السمعي-البصري الكامل: عناصر المشهد الصوتي هي ذاتها حصراً المصورة في البرومبت.
-3. التوزيع الحركي: خصص ${targetVideoScenesCount} مشهداً لتكون فيديو حركي (media_type: "video") مع "motion_prompt" سينمائي لحركة الكاميرا. باقي المشاهد (media_type: "image") صور 4K فائقة الدقة.
-4. المشهد 1 دائماً فيديو حركي (Hook)، والمشهد الأخير فيديو أو صورة خاتمة مؤثرة.
+2. أسلوب ونبرة السرد الإلزامية: "${activeNarration}".
+3. التطابق السمعي-البصري وشكل الرسومات:
+   - شكل وطراز الرسومات الفنية (Art / Visual Style): "${activeArt}".
+   - أبعاد المشاهد (Aspect Ratio): "${activeRatio}".
+   - حركة الكاميرا: "${activeCam}".
+4. التوزيع الحركي: خصص ${targetVideoScenesCount} مشهداً لتكون فيديو حركي (media_type: "video") مع "motion_prompt" سينمائي لحركة الكاميرا. باقي المشاهد (media_type: "image") صور 4K فائقة الدقة.
+5. المشهد 1 دائماً فيديو حركي (Hook)، والمشهد الأخير فيديو أو صورة خاتمة مؤثرة.
 
 نص القصة:
 ${params.storyText.slice(0, 5000)}
 
 التنسيق الإجباري (JSON فقط):
 {
-  "title": "${isEnglish ? "Engaging Mystery Title" : "عنوان غامض وجذاب لليوتيوب بالعربية"}",
+  "title": "${params.storyTitle || (isEnglish ? "Engaging Mystery Title" : "عنوان غامض وجذاب لليوتيوب بالعربية")}",
   "description": "${isEnglish ? "YouTube description with chapters" : "وصف تفصيلي للفيديو لليوتيوب"}",
-  "thumbnail_prompt": "Cinematic YouTube thumbnail, extreme facial tension, photorealistic, 8k, dramatic chiaroscuro lighting, 16:9",
+  "thumbnail_prompt": "${activeRatio}, ${activeArt}, extreme facial tension, photorealistic, 8k, chiaroscuro lighting",
   "thumbnail_text": "${isEnglish ? "Shocking Mystery" : "اللغز المحيّر"}",
   "language": "${params.storyLanguage}",
   "estimatedMinutes": ${durationMin},
@@ -269,7 +328,7 @@ ${params.storyText.slice(0, 5000)}
       "scene_number": 1,
       "media_type": "video",
       "voiceover_arabic": "نص الإلقاء الصوتي بين 20 و35 كلمة بالفصحى الغامضة.",
-      "image_prompt": "Cinematic photorealistic 8k scene, dramatic lighting, 16:9",
+      "image_prompt": "${activeRatio}, ${activeArt}, cinematic opening hook scene",
       "motion_prompt": "Slow tracking forward camera motion, suspenseful atmosphere"
     }
   ]
@@ -307,20 +366,43 @@ ${params.storyText.slice(0, 5000)}
   const promptEncoded = encodeURIComponent(parsedData.thumbnail_prompt || "mystery story documentary 8k");
   const thumbnailUrl = `https://image.pollinations.ai/prompt/${promptEncoded}?width=1280&height=720&nologo=true`;
 
+  // Provide locked characters
+  const lockedCharacters = [
+    {
+      id: "char_main",
+      name: "بطل القصة الرئيسي",
+      role: "الشخصية المحورية",
+      ageGender: "شخصية رئيسية مميزة",
+      visualFeatures: "ملامح سينمائية ثابتة، تفاصيل وجه مميزة لا تتغير عبر المشاهد",
+      clothingAnchor: "معطف داكن أنيق بأزرار مميزة وألوان ثابتة في كل اللقطات",
+      consistencyPromptSnippet: "Consistent protagonist: identical facial structure, dark styled hair, signature charcoal overcoat, same visual identity",
+    }
+  ];
+
   const rawScenes = Array.isArray(parsedData.scenes) ? parsedData.scenes : [];
-  const scenes = rawScenes.map((sc: any, idx: number) => ({
-    scene_id: sc.scene_id || sc.scene_number || idx + 1,
-    scene_number: sc.scene_number || sc.scene_id || idx + 1,
-    narrative_stage: sc.narrative_stage || `المشهد ${idx + 1}`,
-    title: sc.title || `المشهد ${idx + 1}`,
-    voiceover: sc.voiceover || sc.voiceover_arabic || sc.narration || "",
-    narration: sc.voiceover || sc.voiceover_arabic || sc.narration || "",
-    image_prompt: sc.image_prompt || "",
-    media_type: sc.media_type === "video" ? ("video" as const) : ("image" as const),
-    motion_prompt: sc.motion_prompt || (sc.media_type === "video" ? "Slow cinematic camera push-in" : "None"),
-    visual_description: sc.visual_description || sc.image_prompt || "",
-    duration: `${Math.round((durationMin * 60) / scenesCount)} ثانية`,
-  }));
+  const scenes = rawScenes.map((sc: any, idx: number) => {
+    let imgPrompt = sc.image_prompt || `${activeRatio}, ${activeArt}`;
+    const snip = lockedCharacters[0].consistencyPromptSnippet;
+    if (!imgPrompt.toLowerCase().includes("consistent")) {
+      imgPrompt = `${activeRatio}, ${activeArt}, [Character Anchor: ${snip}], ${imgPrompt.replace(activeRatio, "").replace(activeArt, "").trim()}`;
+    }
+
+    return {
+      scene_id: sc.scene_id || sc.scene_number || idx + 1,
+      scene_number: sc.scene_number || sc.scene_id || idx + 1,
+      narrative_stage: sc.narrative_stage || `المشهد ${idx + 1}`,
+      title: sc.title || `المشهد ${idx + 1}`,
+      voiceover: sc.voiceover || sc.voiceover_arabic || sc.narration || "",
+      narration: sc.voiceover || sc.voiceover_arabic || sc.narration || "",
+      image_prompt: imgPrompt,
+      media_type: sc.media_type === "video" ? ("video" as const) : ("image" as const),
+      motion_prompt: sc.motion_prompt || (sc.media_type === "video" ? "Slow cinematic camera push-in" : "None"),
+      visual_description: sc.visual_description || sc.image_prompt || "",
+      duration: `${Math.round((durationMin * 60) / scenesCount)} ثانية`,
+      characters_present: [lockedCharacters[0].name],
+      character_consistency_anchor: snip,
+    };
+  });
 
   return {
     title: parsedData.title || params.storyTitle || "قصة وثائقية سينمائية",
@@ -328,6 +410,7 @@ ${params.storyText.slice(0, 5000)}
     thumbnail_prompt: parsedData.thumbnail_prompt || "",
     thumbnail_text: parsedData.thumbnail_text || "",
     generatedThumbnailUrl: thumbnailUrl,
+    lockedCharacters,
     scenes,
     estimatedMinutes: durationMin,
     totalScenes: scenesCount,
