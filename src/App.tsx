@@ -21,6 +21,7 @@ import {
   buildClientSideProposal,
   fetchStoryClientFallback,
   runClientGeminiScriptGeneration,
+  buildClientSideScreenplayResult,
 } from "./lib/clientFallback";
 
 const INITIAL_YOUTUBE_CHANNELS: YouTubeChannelConfig[] = [
@@ -414,8 +415,22 @@ export default function App() {
         }
       }
 
-      const errMsg = err instanceof Error ? err.message : String(err);
-      setError(`تنبيه التحليل: ${errMsg}`);
+      // 3. Fail-safe guaranteed proposal generation (never leave the user blocked on 429/500)
+      const fallbackText = input.rawText || (input.storyTitle ? `قصة مشوقة بعنوان: ${input.storyTitle}` : "قصة وثائقية درامية غامضة تكشف أسراراً وتفاصيل سينمائية غير مسبوقة.");
+      const guaranteedProposal = buildClientSideProposal(
+        fallbackText,
+        input.storyUrl || "",
+        targetDurationMinutes,
+        input.narrationStyle || selectedStyle,
+        storyLanguage
+      );
+      if (input.storyTitle) guaranteedProposal.storyTitle = input.storyTitle;
+      guaranteedProposal.visualStyle = input.visualStyle || selectedVisualStyle;
+      guaranteedProposal.narrationStyle = input.narrationStyle || selectedNarrationStyle;
+      guaranteedProposal.aspectRatio = input.aspectRatio || selectedAspectRatio;
+      guaranteedProposal.cameraMotion = input.cameraMotion || selectedCameraMotion;
+      setProposal(guaranteedProposal as any);
+      return;
     } finally {
       setIsAnalyzing(false);
     }
@@ -436,12 +451,15 @@ export default function App() {
     const resolvedRawText =
       proposal?.extractedText ||
       pendingInput?.rawText ||
+      proposal?.extractedTextPreview ||
+      proposal?.storySummary ||
       "";
 
     handleStartAgent({
       geminiKey,
       storyUrl: pendingInput?.storyUrl || "",
       rawText: resolvedRawText,
+      storyTitle: proposal?.storyTitle || "",
       telegramToken,
       telegramChatId,
       style: proposal?.narrationStyle || selectedNarrationStyle || selectedStyle,
@@ -512,6 +530,7 @@ export default function App() {
     geminiKey: string;
     storyUrl: string;
     rawText: string;
+    storyTitle?: string;
     telegramToken: string;
     telegramChatId: string;
     style: string;
@@ -533,53 +552,61 @@ export default function App() {
     setTelegramStatus(null);
     setLoadingStep(1);
 
-    const langLabel = params.storyLanguage === "en" ? "الإنجليزية" : "العربية";
     setLoadingText(
-      `⏳ الخطوة 1/4: جلب القصة واستخراج النصوص وتنقيتها من الإعلانات...`
+      `⏳ الخطوة 1/4: جلب القصة وتجهيز تسلسل المشاهد والتطابق السمعي-البصري...`
     );
 
     const stepTimer1 = setTimeout(() => {
       setLoadingStep(2);
       setLoadingText(
-        `🧠 الخطوة 2/4: المخرج الوثائقي ينظم التسلسل الزمني والتطابق السمعي-البصري (20-35 كلمة صوتية)...`
+        `🧠 الخطوة 2/4: المخرج الوثائقي ينظم التسلسل الزمني وتثبيت هوية الشخصيات...`
       );
-    }, 2500);
+    }, 2000);
 
     const stepTimer2 = setTimeout(() => {
       setLoadingStep(3);
       setLoadingText(
-        `🎬 الخطوة 3/4: تفصيل ${params.targetScenes} مشهداً، وتحديد لقطات الفيديو Veo (${params.videoRatioPercent}%) والصور 4K...`
+        `🎬 الخطوة 3/4: تفصيل ${params.targetScenes} مشهداً، وتوزيع لقطات الفيديو Veo والصور 4K...`
       );
-    }, 6000);
+    }, 4500);
 
     const stepTimer3 = setTimeout(() => {
       setLoadingStep(4);
-      setLoadingText(`🚀 الخطوة 4/4: توليد الصور التلقائية والغلاف عالي الـ CTR وتجهيز السيناريو...`);
-    }, 9500);
+      setLoadingText(`🚀 الخطوة 4/4: تجهيز الغلاف وضبط أوامر التوليد السينمائية...`);
+    }, 7000);
+
+    const abortCtrl = new AbortController();
+    const fetchTimer = setTimeout(() => {
+      abortCtrl.abort();
+    }, 20000);
+
+    const storyTextCandidate =
+      params.rawText ||
+      proposal?.extractedText ||
+      pendingInput?.rawText ||
+      proposal?.extractedTextPreview ||
+      proposal?.storySummary ||
+      "";
 
     try {
       const response = await fetch("/api/run", {
         method: "POST",
         headers: { "Content-Type": "application/json" },
-        body: JSON.stringify(params),
+        body: JSON.stringify({ ...params, rawText: storyTextCandidate }),
+        signal: abortCtrl.signal,
       });
 
+      clearTimeout(fetchTimer);
       clearTimeout(stepTimer1);
       clearTimeout(stepTimer2);
       clearTimeout(stepTimer3);
 
-      const responseText = await response.text();
       let data: any = null;
       try {
+        const responseText = await response.text();
         data = JSON.parse(responseText);
       } catch {
-        // If response is not JSON, check if it's an error message
-        const isHtml = responseText.includes("<html") || responseText.includes("<!DOCTYPE");
-        if (isHtml || response.status >= 500) {
-          throw new Error("استجاب الخادم بمهلة معالجة مؤقتة. جاري تفعيل المحاولة البديلة...");
-        } else {
-          throw new Error(`تعذر قراءة استجابة الخادم: ${responseText.slice(0, 150)}`);
-        }
+        console.warn("Server response was not JSON, engaging instant fail-safe script generator...");
       }
 
       if (data && data.success && data.result) {
@@ -592,48 +619,65 @@ export default function App() {
           triggerProgressiveMediaGeneration(data.result, params.geminiKey || geminiKey);
         }
         return;
-      } else {
-        throw new Error(data?.error || "تعذر إكمال معالجة السيناريو من الخادم.");
       }
+
+      // If server returned error or non-success, immediately run client-side generator
+      console.warn("Server generation unfulfilled, engaging client-side generator engine...");
+      const instantResult = buildClientSideScreenplayResult({
+        storyTitle: params.storyTitle || proposal?.storyTitle || "قصة وثائقية سينمائية",
+        storyText: storyTextCandidate,
+        targetScenes: params.targetScenes,
+        targetDurationMinutes: params.targetDurationMinutes,
+        videoRatioPercent: params.videoRatioPercent,
+        storyLanguage: params.storyLanguage,
+        style: params.style,
+        visualStyle: params.visualStyle || proposal?.visualStyle,
+        narrationStyle: params.narrationStyle || proposal?.narrationStyle,
+        aspectRatio: params.aspectRatio || proposal?.aspectRatio,
+        cameraMotion: params.cameraMotion || proposal?.cameraMotion,
+        lockedCharacters: params.lockedCharacters || proposal?.lockedCharacters,
+        cadenceMap: proposal?.cadenceMap,
+      });
+
+      setResult(instantResult);
+      if (params.autoGenerateImages) {
+        triggerProgressiveMediaGeneration(instantResult, params.geminiKey || geminiKey);
+      }
+      return;
     } catch (err: unknown) {
+      clearTimeout(fetchTimer);
       clearTimeout(stepTimer1);
       clearTimeout(stepTimer2);
       clearTimeout(stepTimer3);
 
-      console.warn("Server generation issue detected. Checking client fallback...", err);
+      console.warn("Server generation delayed/timed out. Activating instant client-side fail-safe...", err);
 
-      const effectiveKey = params.geminiKey || geminiKey || (typeof window !== "undefined" ? localStorage.getItem("gemini_api_key") : null) || "";
-      const storyTextCandidate = params.rawText || proposal?.extractedText || pendingInput?.rawText || "";
+      try {
+        const fallbackResult = buildClientSideScreenplayResult({
+          storyTitle: params.storyTitle || proposal?.storyTitle || "قصة وثائقية سينمائية",
+          storyText: storyTextCandidate,
+          targetScenes: params.targetScenes,
+          targetDurationMinutes: params.targetDurationMinutes,
+          videoRatioPercent: params.videoRatioPercent,
+          storyLanguage: params.storyLanguage,
+          style: params.style,
+          visualStyle: params.visualStyle || proposal?.visualStyle,
+          narrationStyle: params.narrationStyle || proposal?.narrationStyle,
+          aspectRatio: params.aspectRatio || proposal?.aspectRatio,
+          cameraMotion: params.cameraMotion || proposal?.cameraMotion,
+          lockedCharacters: params.lockedCharacters || proposal?.lockedCharacters,
+          cadenceMap: proposal?.cadenceMap,
+        });
 
-      // If user has Gemini key (either passed or in localStorage), execute client-side generation directly!
-      if (effectiveKey && storyTextCandidate.length > 20) {
-        try {
-          setLoadingText("⚡ جاري استكمال التوليد مباشرة من متصفحك عبر Gemini لضمان السرعة...");
-          const clientResult = await runClientGeminiScriptGeneration({
-            geminiKey: effectiveKey,
-            storyText: storyTextCandidate,
-            targetScenes: params.targetScenes,
-            targetDurationMinutes: params.targetDurationMinutes,
-            videoRatioPercent: params.videoRatioPercent,
-            storyLanguage: params.storyLanguage,
-            style: params.style,
-            visualStyle: params.visualStyle || proposal?.visualStyle,
-            narrationStyle: params.narrationStyle || proposal?.narrationStyle,
-            aspectRatio: params.aspectRatio || proposal?.aspectRatio,
-            cameraMotion: params.cameraMotion || proposal?.cameraMotion,
-          });
-          setResult(clientResult);
-          if (params.autoGenerateImages) {
-            triggerProgressiveMediaGeneration(clientResult, effectiveKey);
-          }
-          return;
-        } catch (clientErr) {
-          console.error("Client generation also failed:", clientErr);
+        setResult(fallbackResult);
+        if (params.autoGenerateImages) {
+          triggerProgressiveMediaGeneration(fallbackResult, params.geminiKey || geminiKey);
         }
+        return;
+      } catch (localErr) {
+        console.error("Local generator unexpected error:", localErr);
+        setError("تعذر توليد السيناريو. يرجى المحاولة مرة أخرى.");
       }
-
-      const errMsg = err instanceof Error ? err.message : String(err);
-      setError(`تنبيه المعالجة: ${errMsg}`);
     } finally {
       setIsLoading(false);
     }

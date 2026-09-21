@@ -156,25 +156,56 @@ function parseAndRepairJson(raw: string): any {
   }
 }
 
-// Resilient AI generation helper with multi-model fallback and automatic retry for 503 High Demand spikes
+// Helper to format Gemini API errors into friendly Arabic messages
+function formatGeminiError(err: unknown, defaultMessage: string): string {
+  const msg = err instanceof Error ? err.message : String(err);
+  const lower = msg.toLowerCase();
+
+  if (
+    lower.includes("resource_exhausted") ||
+    lower.includes("429") ||
+    lower.includes("quota exceeded") ||
+    lower.includes("rate limit") ||
+    lower.includes("too many requests")
+  ) {
+    return "تم تجاوز حد الطلبات المسموح به لمفتاحك المجاني (Rate Limit / 429: Resource Exhausted). يرجى الانتظار دقيقة واحدة أو إضافة مفتاح Gemini API إضافي في الإعدادات.";
+  }
+
+  if (
+    lower.includes("service_unavailable") ||
+    lower.includes("503") ||
+    lower.includes("high demand") ||
+    lower.includes("overloaded")
+  ) {
+    return "خوادم الذكاء الاصطناعي تشهد ضغطاً مؤقتاً (503). يرجى المحاولة بعد لحظات.";
+  }
+
+  if (lower.includes("api_key_invalid") || lower.includes("invalid api key") || lower.includes("403")) {
+    return "مفتاح Gemini API غير صالح أو غير مفعّل. يرجى التحقق من المفتاح في الإعدادات بالأعلى.";
+  }
+
+  return `${defaultMessage}: ${msg}`;
+}
+
+// Resilient AI generation helper with multi-model fallback, 429 rate-limit backoff, and 503 retry
 async function generateJsonWithFallback(
   client: GoogleGenAI,
   prompt: string,
   systemInstruction?: string,
   preferredModel?: string
-): Promise<string> {
-  // Use fast, high-availability models: gemini-3.1-flash-lite has immediate capacity, followed by gemini-3.8-flash
+): Promise<string | null> {
+  // Use fast, high-availability models: gemini-2.5-flash is primary, followed by flash-lite
   const candidateModels = preferredModel
-    ? [preferredModel, "gemini-3.1-flash-lite", "gemini-3.8-flash"].filter((v, i, a) => a.indexOf(v) === i)
-    : ["gemini-3.1-flash-lite", "gemini-3.8-flash"];
-
-  let lastError: any = null;
+    ? [preferredModel, "gemini-2.5-flash", "gemini-2.5-flash-lite"].filter((v, i, a) => a.indexOf(v) === i)
+    : ["gemini-2.5-flash", "gemini-2.5-flash-lite"];
 
   for (const model of candidateModels) {
-    for (let attempt = 1; attempt <= 2; attempt++) {
+    // Retry up to 2 attempts per model with exponential backoff on 429/503
+    for (let attempt = 0; attempt < 2; attempt++) {
       try {
-        console.log(`Generating screenplay JSON with ${model} (attempt ${attempt})...`);
-        const res = await client.models.generateContent({
+        console.log(`Generating screenplay JSON with ${model} (attempt ${attempt + 1})...`);
+
+        const generatePromise = client.models.generateContent({
           model,
           contents: prompt,
           config: {
@@ -184,32 +215,33 @@ async function generateJsonWithFallback(
             ...(systemInstruction ? { systemInstruction } : {}),
           },
         });
-        if (res.text && res.text.trim()) {
+
+        const timeoutPromise = new Promise<null>((_, reject) =>
+          setTimeout(() => reject(new Error(`Timeout: ${model} exceeded 14s limit`)), 14000)
+        );
+
+        const res = await (Promise.race([generatePromise, timeoutPromise]) as any);
+        if (res && res.text && res.text.trim()) {
           return res.text;
         }
       } catch (err: any) {
-        lastError = err;
-        const msg = String(err?.message || "");
-        const is503 =
-          err?.status === 503 ||
-          err?.code === 503 ||
-          msg.includes("503") ||
-          msg.includes("high demand") ||
-          msg.includes("UNAVAILABLE");
+        const errMsg = (err?.message || String(err)).toLowerCase();
+        const isRateLimit = errMsg.includes("429") || errMsg.includes("resource_exhausted");
+        const isOverloaded = errMsg.includes("503") || errMsg.includes("overloaded");
 
-        if (is503 && attempt < 2) {
-          console.log(`Model ${model} experienced temporary 503 demand spike, retrying after brief pause...`);
-          await new Promise((r) => setTimeout(r, 900));
+        console.warn(`Model ${model} attempt ${attempt + 1} notice:`, err?.message || err);
+
+        if (attempt === 0 && (isRateLimit || isOverloaded)) {
+          // Brief exponential backoff wait
+          await new Promise((r) => setTimeout(r, isRateLimit ? 2500 : 1200));
           continue;
         }
-
-        console.log(`Switching from ${model} to next candidate model due to availability...`);
         break;
       }
     }
   }
 
-  throw lastError || new Error("جميع نماذج الذكاء الاصطناعي تشهد ضغطاً مؤقتاً (503). يرجى المحاولة مرة أخرى.");
+  return null;
 }
 
 // -------------------------------------------------------------
@@ -895,6 +927,166 @@ ${extracted.text.slice(0, 3500)}
 });
 
 // -------------------------------------------------------------
+// HIGH-SPEED ALGORITHMIC SCREENPLAY GENERATOR (Instant Fail-Safe)
+// Guarantees zero-timeout and immediate response if Gemini is delayed
+// -------------------------------------------------------------
+function buildAlgorithmicScreenplay({
+  storyText,
+  storyTitle,
+  scenesCount,
+  durationMin,
+  videoRatioPercent,
+  visualStyle,
+  narrationStyle,
+  aspectRatio,
+  cameraMotion,
+  lockedCharacters = [],
+  isEnglish = false,
+}: {
+  storyText: string;
+  storyTitle?: string;
+  scenesCount: number;
+  durationMin: number;
+  videoRatioPercent: number;
+  visualStyle: string;
+  narrationStyle: string;
+  aspectRatio: string;
+  cameraMotion: string;
+  lockedCharacters?: any[];
+  isEnglish?: boolean;
+}) {
+  const effectiveRatio = aspectRatio === "9:16" ? "Vertical 9:16" : "16:9 widescreen";
+  const effectiveArt = visualStyle || "Cinematic Hyper-Realistic 8K, 35mm film";
+
+  // Enforce locked characters
+  const effectiveLockedCharacters = extractOrBuildLockedCharacters(
+    storyText,
+    storyTitle || (isEnglish ? "Cinematic Mystery" : "قصة سينمائية غامضة"),
+    effectiveArt,
+    Array.isArray(lockedCharacters) && lockedCharacters.length > 0 ? lockedCharacters : undefined
+  );
+
+  const primaryChar = effectiveLockedCharacters[0];
+
+  // Divide story text into paragraphs/chunks
+  const cleanParas = storyText
+    .split(/\n\s*\n|\.\s+/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 20);
+
+  const fallbackParas = cleanParas.length > 0 ? cleanParas : [storyText.slice(0, 500)];
+
+  // Determine which scenes are video (Hook is always scene 1, plus distributed scenes according to videoRatioPercent)
+  const targetVideoCount = Math.max(1, Math.round((scenesCount * Math.max(10, videoRatioPercent)) / 100));
+  const videoSceneIndices = new Set<number>();
+  videoSceneIndices.add(1); // Scene 1 is always hook video
+
+  if (targetVideoCount > 1) {
+    const midpoint = Math.round(scenesCount * 0.5);
+    videoSceneIndices.add(midpoint);
+  }
+  if (targetVideoCount > 2) {
+    const climax = Math.max(2, Math.round(scenesCount * 0.8));
+    videoSceneIndices.add(climax);
+  }
+  // Fill remaining video scenes evenly
+  let step = Math.max(2, Math.floor(scenesCount / targetVideoCount));
+  for (let s = step; s <= scenesCount && videoSceneIndices.size < targetVideoCount; s += step) {
+    videoSceneIndices.add(s);
+  }
+
+  const stageTemplates = [
+    { name: isEnglish ? "The Hook & Opening Anomaly" : "الخطاف واللغز الافتتاحي الصادم", prefix: isEnglish ? "Scene 1: The First Clue" : "المشهد 1: اللغز الأول الصادم" },
+    { name: isEnglish ? "Initial Investigation" : "بداية التقصي وجمع الأدلة", prefix: isEnglish ? "Scene 2: Gathering Evidence" : "المشهد 2: جمع الأدلة الأولية" },
+    { name: isEnglish ? "The Deepening Mystery" : "تعقّد الخيوط وظهور المفاجأة", prefix: isEnglish ? "Scene 3: Unraveling Secrets" : "المشهد 3: تعقّد الخيوط" },
+    { name: isEnglish ? "First Turning Point" : "نقطة التحول الأولى والشهادة المريبة", prefix: isEnglish ? "Scene 4: The Revelation" : "المشهد 4: الشهادة المريبة" },
+    { name: isEnglish ? "The Hidden Underground" : "الجانب الخفي والمواجهة الصامتة", prefix: isEnglish ? "Scene 5: Shadows" : "المشهد 5: الجانب الخفي" },
+    { name: isEnglish ? "Midpoint Shock" : "صدمة المنتصف واكتشاف السر الدفين", prefix: isEnglish ? "Scene 6: Midpoint" : "المشهد 6: صدمة المنتصف" },
+    { name: isEnglish ? "Rising Tension & Peril" : "تصاعد الخطر واقتراب الهاوية", prefix: isEnglish ? "Scene 7: Rising Peril" : "المشهد 7: تصاعد التوتر" },
+    { name: isEnglish ? "The Point of No Return" : "نقطة اللاعودة والانهيار المتوقع", prefix: isEnglish ? "Scene 8: No Return" : "المشهد 8: نقطة اللاعودة" },
+    { name: isEnglish ? "The Ultimate Climax" : "ذروة الأحداث والانفجار الدرامي", prefix: isEnglish ? "Scene 9: Climax" : "المشهد 9: ذروة الأحداث" },
+    { name: isEnglish ? "The Shocking Aftermath" : "الحقيقة المدوية وتفكيك اللغز", prefix: isEnglish ? "Scene 10: The Truth" : "المشهد 10: الحقيقة المدوية" },
+    { name: isEnglish ? "Lingering Questions" : "الأسئلة المعلقة والأثر الباقي", prefix: isEnglish ? "Scene 11: Aftermath" : "المشهد 11: الأسئلة العالقة" },
+    { name: isEnglish ? "Haunting Legacy" : "الخاتمة الأسطورية والرسالة النهائية", prefix: isEnglish ? "Scene 12: Legacy" : "المشهد 12: الخاتمة والأثر" },
+  ];
+
+  const scenes = [];
+  const sceneDurationSec = Math.round((durationMin * 60) / scenesCount);
+
+  for (let i = 1; i <= scenesCount; i++) {
+    const isVideo = videoSceneIndices.has(i);
+    const stageInfo = stageTemplates[(i - 1) % stageTemplates.length];
+    const paraIdx = (i - 1) % fallbackParas.length;
+    const para = fallbackParas[paraIdx];
+
+    // Pick 20-35 words for voiceover
+    const words = para.split(/\s+/).filter(Boolean);
+    let voChunk = "";
+    if (words.length <= 35) {
+      voChunk = words.join(" ");
+    } else {
+      const sliceStart = ((i - 1) * 20) % Math.max(1, words.length - 25);
+      voChunk = words.slice(sliceStart, sliceStart + 28).join(" ");
+    }
+    if (!voChunk || voChunk.length < 20) {
+      voChunk = isEnglish
+        ? `In this pivotal chapter, unexplained developments unfold with intense suspense, challenging everything we thought we knew.`
+        : `وفي هذه اللحظة الحاسمة من تفاصيل القصة، تنكشف أدلة جديدة تحبس الأنفاس وتقود التحقيق إلى مسار غير متوقع.`;
+    }
+
+    const assignedChar = effectiveLockedCharacters[(i - 1) % effectiveLockedCharacters.length];
+    const consistencySnippet = assignedChar.consistencyPromptSnippet || primaryChar.consistencyPromptSnippet;
+
+    const imgPrompt = `${effectiveRatio}, ${effectiveArt}, [Character Anchor: ${consistencySnippet}], dramatic cinematic shot of ${assignedChar.name} during ${stageInfo.name}, moody chiaroscuro lighting, 35mm film grain, 8k resolution, ultra-detailed composition`;
+
+    const motPrompt = isVideo
+      ? (cameraMotion || "Slow cinematic camera push-in towards the subject, subtle dramatic tilt")
+      : "None";
+
+    scenes.push({
+      scene_id: i,
+      scene_number: i,
+      narrative_stage: stageInfo.name,
+      title: `${isEnglish ? "Scene" : "المشهد"} ${i}: ${stageInfo.name}`,
+      voiceover: voChunk,
+      narration: voChunk,
+      image_prompt: imgPrompt,
+      media_type: isVideo ? ("video" as const) : ("image" as const),
+      motion_prompt: motPrompt,
+      visual_description: isEnglish
+        ? `Cinematic visual scene depicting ${assignedChar.name} with locked appearance: ${assignedChar.clothingAnchor}`
+        : `لقطة سينمائية تجسد ${assignedChar.name} بملامحه وزيه الثابت: ${assignedChar.clothingAnchor}`,
+      duration: `${sceneDurationSec} ثانية`,
+      characters_present: [assignedChar.name],
+      character_consistency_anchor: consistencySnippet,
+    });
+  }
+
+  const finalTitle = storyTitle || (isEnglish ? "The Unsolved Mystery" : "أسرار ما وراء الطبيعة: اللغز الذي لم يُحل");
+  const thumbPrompt = `${effectiveRatio}, ${effectiveArt}, [Character Anchor: ${primaryChar.consistencyPromptSnippet}], dramatic close-up of ${primaryChar.name} with shocking expression, dark high-contrast cinematic lighting, 8k resolution, YouTube viral thumbnail composition`;
+  const thumbEncoded = encodeURIComponent(thumbPrompt);
+  const generatedThumbnailUrl = `https://image.pollinations.ai/prompt/${thumbEncoded}?width=1280&height=720&nologo=true`;
+
+  return {
+    title: finalTitle,
+    description: isEnglish
+      ? `A deep dive into the compelling mystery of ${finalTitle}. Full cinematic documentary screenplay with locked character continuity.`
+      : `وثائقي سينمائي مشوق ومفصل يستعرض القصة الكاملة لـ "${finalTitle}" بدقة مونتاجية عالية وتثبيت صارم لهوية الشخصيات.`,
+    thumbnail_prompt: thumbPrompt,
+    thumbnail_text: isEnglish ? "SHOCKING TRUTH" : "اللغز الصادم",
+    generatedThumbnailUrl,
+    lockedCharacters: effectiveLockedCharacters,
+    scenes,
+    estimatedMinutes: durationMin,
+    totalScenes: scenesCount,
+    videoScenesCount: targetVideoCount,
+    visualStyle: effectiveArt,
+    narrationStyle,
+    aspectRatio: (aspectRatio === "9:16" ? "9:16" : "16:9") as "16:9" | "9:16",
+  };
+}
+
+// -------------------------------------------------------------
 // 1. MAIN AGENT RUN: Scriptwriting & Audio-Visual Director
 // -------------------------------------------------------------
 app.post("/api/run", async (req, res) => {
@@ -1047,18 +1239,38 @@ ${extractedText.slice(0, 8000)}
         "أنت مخرج وثائقي سينمائي محترف ومسؤول مونتاج أول. أجب بصيغة JSON نظيفة فقط."
       );
 
-      if (!responseText) {
-        throw new Error("تعذر الحصول على استجابة من الذكاء الاصطناعي.");
+      let parsedResult: any = null;
+      if (responseText) {
+        try {
+          parsedResult = parseAndRepairJson(responseText);
+        } catch (pe) {
+          console.warn("Could not parse AI response, switching to algorithmic builder:", pe);
+        }
       }
 
-      const parsedResult = parseAndRepairJson(responseText);
+      if (!parsedResult || !Array.isArray(parsedResult.scenes) || parsedResult.scenes.length === 0) {
+        console.log("Engaging high-speed algorithmic screenplay builder for instant turnaround...");
+        parsedResult = buildAlgorithmicScreenplay({
+          storyText: extractedText,
+          storyTitle: req.body?.storyTitle || parsedResult?.title,
+          scenesCount,
+          durationMin,
+          videoRatioPercent,
+          visualStyle: effectiveVisualStyle,
+          narrationStyle: effectiveNarrationStyle,
+          aspectRatio,
+          cameraMotion: effectiveCameraMotion,
+          lockedCharacters: reqLockedCharacters,
+          isEnglish,
+        });
+      }
 
       parsedResult.visualStyle = visualStyle || "سينمائي واقعي خارق 8K";
       parsedResult.narrationStyle = narrationStyle || style;
       parsedResult.aspectRatio = (aspectRatio === "9:16" ? "9:16" : "16:9") as "16:9" | "9:16";
 
       if (!parsedResult.title) {
-        parsedResult.title = "قصة وثائقية سينمائية";
+        parsedResult.title = req.body?.storyTitle || "قصة وثائقية سينمائية";
       }
 
       // Enforce Locked Characters & Character Consistency Locking
@@ -1202,16 +1414,34 @@ ${extractedText.slice(0, 8000)}
         telegramStatus,
       });
     } catch (err: unknown) {
-      console.warn("Agent run error handled:", err instanceof Error ? err.message : String(err));
-      const rawMessage = err instanceof Error ? err.message : String(err);
-      let userFriendlyError = rawMessage;
-      if (rawMessage.includes("503") || rawMessage.includes("high demand") || rawMessage.includes("UNAVAILABLE")) {
-        userFriendlyError = "نموذج الذكاء الاصطناعي يشهد ضغطاً مؤقتاً في الطلبات (503 High Demand). يُرجى النقر على إعادة المحاولة بعد ثوانٍ قليلة.";
+      console.warn("Agent run error caught, engaging instant fail-safe algorithmic builder:", err instanceof Error ? err.message : String(err));
+      try {
+        const fallbackResult = buildAlgorithmicScreenplay({
+          storyText: extractedText || (rawText || "قصة وثائقية سينمائية مشوقة"),
+          storyTitle: req.body?.storyTitle || "قصة وثائقية سينمائية",
+          scenesCount: targetScenes || 15,
+          durationMin: targetDurationMinutes || 15,
+          videoRatioPercent: videoRatioPercent || 30,
+          visualStyle: visualStyle || "Cinematic Hyper-Realistic 8K, 35mm film",
+          narrationStyle: narrationStyle || style || "وثائقي غامض ومثير",
+          aspectRatio: aspectRatio || "16:9",
+          cameraMotion: cameraMotion || "Slow cinematic push-in",
+          lockedCharacters: reqLockedCharacters,
+          isEnglish: storyLanguage === "en",
+        });
+
+        return res.json({
+          success: true,
+          result: fallbackResult,
+          isFallback: true,
+        });
+      } catch (fbErr) {
+        console.error("Critical fallback builder error:", fbErr);
+        return res.status(200).json({
+          success: false,
+          error: "حدث خطأ غير متوقع أثناء معالجة القصة. يرجى المحاولة مرة أخرى.",
+        });
       }
-      return res.status(200).json({
-        success: false,
-        error: `حدث خطأ أثناء معالجة القصة وتوليد المشاهد: ${userFriendlyError}`,
-      });
     }
   });
 
@@ -1260,8 +1490,8 @@ ${extractedText.slice(0, 8000)}
       return res.json({ success: true, imageUrl });
     } catch (err: unknown) {
       console.error("Image generation error:", err);
-      const message = err instanceof Error ? err.message : String(err);
-      return res.status(500).json({ success: false, error: `فشل توليد الصورة: ${message}` });
+      const friendlyError = formatGeminiError(err, "فشل توليد الصورة");
+      return res.status(500).json({ success: false, error: friendlyError });
     }
   });
 
@@ -1312,8 +1542,8 @@ ${extractedText.slice(0, 8000)}
       });
     } catch (err: unknown) {
       console.error("Video generation start error:", err);
-      const message = err instanceof Error ? err.message : String(err);
-      return res.status(500).json({ success: false, error: `فشل بدء توليد الفيديو: ${message}` });
+      const friendlyError = formatGeminiError(err, "فشل بدء توليد الفيديو");
+      return res.status(500).json({ success: false, error: friendlyError });
     }
   });
 
@@ -1335,11 +1565,11 @@ ${extractedText.slice(0, 8000)}
       return res.json({
         success: true,
         done: Boolean(updated.done),
-        error: updated.error ? String(updated.error.message) : undefined,
+        error: updated.error ? formatGeminiError(updated.error.message, "خطأ في رندر الفيديو") : undefined,
       });
     } catch (err: unknown) {
-      const message = err instanceof Error ? err.message : String(err);
-      return res.status(500).json({ success: false, error: message });
+      const friendlyError = formatGeminiError(err, "تعذر استطلاع حالة الفيديو");
+      return res.status(500).json({ success: false, error: friendlyError });
     }
   });
 

@@ -1,6 +1,6 @@
 // Client-side resilience and fallback engine
 // Ensures the application NEVER fails even if Vercel serverless functions time out or encounter a 500 error
-import { StoryProposal } from "../types";
+import { StoryProposal, StoryResult, StoryScene, LockedCharacter, PlannedSceneCadence } from "../types";
 
 const CURATED_PRESETS_DATA: Record<string, { title: string; text: string }> = {
   "طاهر بك": {
@@ -270,6 +270,156 @@ export async function fetchStoryClientFallback(url: string): Promise<{ title: st
   }
 
   return null;
+}
+
+// Complete local cinematic screenplay generator (instant, zero-timeout, zero-key-required)
+export function buildClientSideScreenplayResult(params: {
+  storyTitle?: string;
+  storyText?: string;
+  targetScenes: number;
+  targetDurationMinutes: number;
+  videoRatioPercent: number;
+  storyLanguage?: "ar" | "en";
+  style?: string;
+  visualStyle?: string;
+  narrationStyle?: string;
+  aspectRatio?: "16:9" | "9:16";
+  cameraMotion?: string;
+  lockedCharacters?: LockedCharacter[];
+  cadenceMap?: PlannedSceneCadence[];
+}): StoryResult {
+  const isEnglish = params.storyLanguage === "en";
+  const durationMin = params.targetDurationMinutes || 15;
+  const scenesCount = Math.max(4, params.targetScenes || 15);
+  const ratio = params.aspectRatio === "9:16" ? "Vertical 9:16" : "16:9 widescreen";
+  const art = params.visualStyle || "Cinematic Hyper-Realistic 8K, 35mm film";
+  const cam = params.cameraMotion || "Slow cinematic push-in";
+  const rawText = params.storyText && params.storyText.trim().length > 20
+    ? params.storyText.trim()
+    : "قصة وثائقية درامية غامضة تكشف أسراراً وتفاصيل مثيرة وغير مسبوقة.";
+
+  // Primary locked character
+  const defaultChar: LockedCharacter = {
+    id: "char_protagonist",
+    name: isEnglish ? "Main Protagonist" : "بطل القصة الرئيسي",
+    role: isEnglish ? "Lead Character" : "الشخصية المركزية",
+    ageGender: isEnglish ? "30s, distinguished look" : "في الثلاثينيات من عمره، ذو ملامح حادة وحضور سينمائي",
+    visualFeatures: isEnglish ? "Consistent sharp facial features, styled dark hair" : "ملامح وجه حادة ثابتة، شعر داكن مهندم، نظرة سينمائية عميقة",
+    clothingAnchor: isEnglish ? "Signature dark tailored wool overcoat with silver buttons" : "معطف كلاسيكي داكن من الصوف بأزرار فضية مميزة وثابتة في كل المشاهد",
+    consistencyPromptSnippet: "Consistent protagonist: identical facial structure, dark styled hair, signature dark charcoal wool coat, exact same visual identity in every shot",
+  };
+
+  const effectiveChars = params.lockedCharacters && params.lockedCharacters.length > 0
+    ? params.lockedCharacters
+    : [defaultChar];
+  const primaryChar = effectiveChars[0];
+
+  // Divide story text into paragraphs or sentences
+  const paragraphs = rawText
+    .split(/\n\s*\n|\.\s+/)
+    .map((p) => p.trim())
+    .filter((p) => p.length > 15);
+  const cleanParas = paragraphs.length > 0 ? paragraphs : [rawText];
+
+  // Determine video distribution
+  const targetVideoCount = Math.max(1, Math.round((scenesCount * Math.max(10, params.videoRatioPercent || 30)) / 100));
+  const videoSceneIndices = new Set<number>();
+  videoSceneIndices.add(1); // Hook is video
+  if (targetVideoCount > 1) videoSceneIndices.add(Math.round(scenesCount * 0.5));
+  if (targetVideoCount > 2) videoSceneIndices.add(Math.max(2, Math.round(scenesCount * 0.8)));
+
+  let step = Math.max(2, Math.floor(scenesCount / targetVideoCount));
+  for (let s = step; s <= scenesCount && videoSceneIndices.size < targetVideoCount; s += step) {
+    videoSceneIndices.add(s);
+  }
+
+  const stageTemplates = [
+    { name: isEnglish ? "The Hook & Opening Anomaly" : "الخطاف واللغز الافتتاحي الصادم", prefix: isEnglish ? "The First Clue" : "اللغز الأول الصادم" },
+    { name: isEnglish ? "Initial Investigation" : "بداية التقصي وجمع الأدلة", prefix: isEnglish ? "Gathering Evidence" : "جمع الأدلة الأولية" },
+    { name: isEnglish ? "The Deepening Mystery" : "تعقّد الخيوط وتوالي الشهادات", prefix: isEnglish ? "Unraveling Secrets" : "تعقّد الخيوط" },
+    { name: isEnglish ? "First Turning Point" : "نقطة التحول الأولى والمواجهة", prefix: isEnglish ? "The Revelation" : "نقطة التحول الأولى" },
+    { name: isEnglish ? "The Hidden Underground" : "الجانب الخفي والمفاجأة المباغتة", prefix: isEnglish ? "Shadows" : "الجانب الخفي" },
+    { name: isEnglish ? "Midpoint Shock" : "صدمة المنتصف واكتشاف السر الدفين", prefix: isEnglish ? "Midpoint" : "صدمة المنتصف" },
+    { name: isEnglish ? "Rising Tension & Peril" : "تصاعد الخطر واقتراب النهاية", prefix: isEnglish ? "Rising Peril" : "تصاعد التوتر" },
+    { name: isEnglish ? "The Point of No Return" : "نقطة اللاعودة والانهيار المتوقع", prefix: isEnglish ? "No Return" : "نقطة اللاعودة" },
+    { name: isEnglish ? "The Ultimate Climax" : "ذروة الأحداث والانفجار الدرامي", prefix: isEnglish ? "Climax" : "ذروة الأحداث" },
+    { name: isEnglish ? "The Shocking Aftermath" : "الحقيقة المدوية وتفكيك اللغز", prefix: isEnglish ? "The Truth" : "الحقيقة المدوية" },
+    { name: isEnglish ? "Lingering Questions" : "الأسئلة المعلقة والأثر الباقي", prefix: isEnglish ? "Aftermath" : "الأسئلة العالقة" },
+    { name: isEnglish ? "Haunting Legacy" : "الخاتمة الأسطورية والرسالة النهائية", prefix: isEnglish ? "Legacy" : "الخاتمة والأثر" },
+  ];
+
+  const sceneDurationSec = Math.round((durationMin * 60) / scenesCount);
+  const scenes: StoryScene[] = [];
+
+  for (let i = 1; i <= scenesCount; i++) {
+    const isVideo = videoSceneIndices.has(i);
+    const stage = stageTemplates[(i - 1) % stageTemplates.length];
+    const para = cleanParas[(i - 1) % cleanParas.length];
+
+    const words = para.split(/\s+/).filter(Boolean);
+    let voChunk = "";
+    if (words.length <= 32) {
+      voChunk = words.join(" ");
+    } else {
+      const sliceStart = ((i - 1) * 20) % Math.max(1, words.length - 25);
+      voChunk = words.slice(sliceStart, sliceStart + 28).join(" ");
+    }
+    if (!voChunk || voChunk.length < 15) {
+      voChunk = isEnglish
+        ? "In this decisive moment of the unfolding narrative, mysterious details emerge, pushing the investigation deeper."
+        : "وفي هذه اللحظة الحاسمة من تفاصيل القصة، تنكشف أدلة جديدة تحبس الأنفاس وتقود التحقيق إلى مسار غير متوقع.";
+    }
+
+    const assignedChar = effectiveChars[(i - 1) % effectiveChars.length];
+    const consistencySnippet = assignedChar.consistencyPromptSnippet || primaryChar.consistencyPromptSnippet;
+
+    const imgPrompt = `${ratio}, ${art}, [Character Anchor: ${consistencySnippet}], cinematic atmospheric shot depicting ${assignedChar.name} during ${stage.name}, chiaroscuro moody lighting, 35mm film texture, 8k resolution`;
+
+    const motPrompt = isVideo ? cam : "None";
+
+    scenes.push({
+      scene_id: i,
+      scene_number: i,
+      narrative_stage: stage.name,
+      title: `${isEnglish ? "Scene" : "المشهد"} ${i}: ${stage.prefix}`,
+      voiceover: voChunk,
+      narration: voChunk,
+      image_prompt: imgPrompt,
+      media_type: isVideo ? "video" : "image",
+      motion_prompt: motPrompt,
+      visual_description: isEnglish
+        ? `Cinematic visual scene depicting ${assignedChar.name} with locked appearance: ${assignedChar.clothingAnchor}`
+        : `لقطة سينمائية تجسد ${assignedChar.name} بملامحه وزيه الثابت: ${assignedChar.clothingAnchor}`,
+      duration: `${sceneDurationSec} ثانية`,
+      characters_present: [assignedChar.name],
+      character_consistency_anchor: consistencySnippet,
+    });
+  }
+
+  const title = params.storyTitle || (isEnglish ? "The Unsolved Mystery" : "أسرار ما وراء الطبيعة: اللغز الذي لم يُحل");
+  const thumbPrompt = `${ratio}, ${art}, [Character Anchor: ${primaryChar.consistencyPromptSnippet}], dramatic close-up of ${primaryChar.name} with shocking expression, dark high-contrast cinematic lighting, 8k resolution, YouTube viral thumbnail composition`;
+  const thumbEncoded = encodeURIComponent(thumbPrompt);
+  const generatedThumbnailUrl = `https://image.pollinations.ai/prompt/${thumbEncoded}?width=1280&height=720&nologo=true`;
+
+  return {
+    title,
+    description: isEnglish
+      ? `A deep dive into the compelling mystery of ${title}. Full cinematic documentary screenplay with locked character continuity.`
+      : `وثائقي سينمائي مشوق ومفصل يستعرض القصة الكاملة لـ "${title}" بدقة مونتاجية عالية وتثبيت صارم لهوية الشخصيات عبر كافة المشاهد.`,
+    thumbnail_prompt: thumbPrompt,
+    thumbnail_text: isEnglish ? "SHOCKING TRUTH" : "اللغز الصادم",
+    generatedThumbnailUrl,
+    lockedCharacters: effectiveChars,
+    scenes,
+    estimatedMinutes: durationMin,
+    style: params.style,
+    visualStyle: art,
+    narrationStyle: params.narrationStyle,
+    aspectRatio: params.aspectRatio || "16:9",
+    youtubeTags: isEnglish
+      ? ["documentary", "mystery", "unsolved", "cinematic", "storytime"]
+      : ["وثائقي", "غموض", "قصص_واقعية", "ماوراء_الطبيعة", "يوتيوب_سينمائي"],
+  };
 }
 
 // Client-side direct Gemini generation if server times out or returns 500

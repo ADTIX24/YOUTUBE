@@ -23,6 +23,7 @@ import {
   Play,
   Loader2,
   RefreshCw,
+  AlertTriangle,
 } from "lucide-react";
 
 interface StoryResultViewProps {
@@ -74,6 +75,7 @@ export function StoryResultView({
   // Media generation tracking
   const [generatingSceneIdx, setGeneratingSceneIdx] = useState<number | null>(null);
   const [videoStatusText, setVideoStatusText] = useState<string | null>(null);
+  const [mediaErrorBanner, setMediaErrorBanner] = useState<string | null>(null);
 
   const isEnglish = result.language === "en";
 
@@ -127,15 +129,17 @@ export function StoryResultView({
       });
       const data = await res.json();
       if (data.success && data.imageUrl) {
+        setMediaErrorBanner(null);
         setScenes((prev) =>
           prev.map((s, idx) => (idx === sceneIdx ? { ...s, generatedImageUrl: data.imageUrl } : s))
         );
       } else {
-        alert(`تعذر توليد الصورة: ${data.error || "خطأ غير معروف"}`);
+        const errorMsg = data.error || "خطأ غير معروف أثناء توليد الصورة";
+        setMediaErrorBanner(errorMsg);
       }
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      alert(`خطأ: ${msg}`);
+      setMediaErrorBanner(`خطأ في توليد الصورة: ${msg}`);
     } finally {
       setGeneratingSceneIdx(null);
     }
@@ -219,10 +223,11 @@ export function StoryResultView({
             : s
         )
       );
+      setMediaErrorBanner(null);
       setVideoStatusText(null);
     } catch (err: unknown) {
       const msg = err instanceof Error ? err.message : String(err);
-      alert(`فشل توليد الفيديو: ${msg}`);
+      setMediaErrorBanner(msg);
       setVideoStatusText(null);
     } finally {
       setGeneratingSceneIdx(null);
@@ -386,6 +391,23 @@ export function StoryResultView({
               <Share2 className="w-4 h-4 text-sky-400" />
               {telegramStatus.message}
             </span>
+          </div>
+        )}
+
+        {/* Media Generation Notice / Error Banner */}
+        {mediaErrorBanner && (
+          <div className="mb-5 p-4 rounded-xl bg-amber-950/50 border border-amber-800 text-amber-200 text-xs flex items-start gap-3 shadow-md animate-in fade-in">
+            <AlertTriangle className="w-4 h-4 text-amber-400 shrink-0 mt-0.5" />
+            <div className="flex-1 leading-relaxed">
+              <span className="font-bold text-amber-300 block mb-0.5">ملاحظة بخصوص وسائط الذكاء الاصطناعي:</span>
+              <p>{mediaErrorBanner}</p>
+            </div>
+            <button
+              onClick={() => setMediaErrorBanner(null)}
+              className="text-amber-400 hover:text-amber-200 text-[11px] px-2 py-0.5 bg-amber-900/40 rounded cursor-pointer shrink-0"
+            >
+              إغلاق
+            </button>
           </div>
         )}
 
